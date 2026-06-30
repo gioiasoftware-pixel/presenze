@@ -100,7 +100,11 @@ export default function EmployeePage() {
     setShowCustomTime(false)
     setCustomTime('')
     setStatus({ type: 'ok', msg: `Registrato alle ${savedTime}` })
-    setTimeout(() => setStatus(null), 5000)
+    setTimeout(() => {
+      setDept(null)
+      setName('')
+      setStatus(null)
+    }, 3000)
   }
 
   function handlePinCancel() {

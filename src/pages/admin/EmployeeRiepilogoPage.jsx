@@ -69,7 +69,7 @@ function mergeDay(shiftData, punches) {
 
   if (planned.length === 0 && entries.length === 0 && exits.length === 0) return { type: 'empty' }
 
-  const numPairs = Math.max(planned.length, 1)
+  const numPairs = Math.max(planned.length, entries.length, exits.length, 1)
   const pairs = []
 
   for (let i = 0; i < numPairs; i++) {
