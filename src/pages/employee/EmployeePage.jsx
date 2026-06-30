@@ -104,7 +104,7 @@ export default function EmployeePage() {
       setDept(null)
       setName('')
       setStatus(null)
-    }, 3000)
+    }, 1000)
   }
 
   function handlePinCancel() {
