@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@theme {
+  --color-petrol-50:  #f0f8fb;
+  --color-petrol-100: #d9eef6;
+  --color-petrol-200: #b0daea;
+  --color-petrol-300: #76bdd6;
+  --color-petrol-400: #3d9abb;
+  --color-petrol-500: #2a7f9e;
+  --color-petrol-600: #236585;
+  --color-petrol-700: #1e526c;
+  --color-petrol-800: #1b4358;
+  --color-petrol-900: #0f2d3d;
+  --color-petrol-950: #071e28;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25%       { transform: translateX(-6px); }
+  75%       { transform: translateX(6px); }
+}
+.animate-shake {
+  animation: shake 0.35s linear 1;
+}
