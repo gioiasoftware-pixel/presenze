@@ -23,6 +23,7 @@ export default function TurniPage() {
   const [exporting, setExporting]         = useState(false)
   const [copying, setCopying]             = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
+  const [showMenu, setShowMenu]           = useState(false)
 
   const days = useMemo(() => (
     Array.from({ length: 7 }, (_, i) => {
@@ -212,23 +213,56 @@ export default function TurniPage() {
             <span className="font-semibold text-white min-w-[160px] text-center text-sm">{formatWeekRange(weekStart)}</span>
             <button onClick={nextWeek} className="border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-white/10 transition">→</button>
             <button onClick={goToday} className="text-xs text-petrol-400 hover:text-white transition font-medium">Oggi</button>
-            <div className="ml-auto flex items-center gap-2 flex-wrap">
-              {/* Prefab toggle — visibile solo su mobile */}
+            <div className="ml-auto flex items-center gap-2">
+              {/* Prefab toggle — solo mobile */}
               <button
                 onClick={() => setShowTemplates(v => !v)}
                 className="md:hidden flex items-center gap-1.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-3 py-2 text-sm font-semibold transition"
               >
                 <span>★</span>
-                <span>Prefab</span>
                 <span className="text-petrol-400 text-xs">{showTemplates ? '▲' : '▼'}</span>
               </button>
+
+              {/* Menu ⋮ — solo mobile */}
+              <div className="md:hidden relative">
+                <button
+                  onClick={() => setShowMenu(v => !v)}
+                  className="flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl w-9 h-9 text-lg font-bold transition"
+                >
+                  ⋮
+                </button>
+                {showMenu && (
+                  <>
+                    {/* Overlay per chiudere */}
+                    <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+                    <div className="absolute right-0 top-11 z-50 bg-petrol-950 border border-white/15 rounded-2xl shadow-2xl overflow-hidden min-w-[180px]">
+                      <button
+                        onClick={() => { setShowMenu(false); handleCopyPrevWeek() }}
+                        disabled={copying || employees.length === 0}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-white hover:bg-white/10 transition disabled:opacity-40 text-left"
+                      >
+                        <span>⎘</span> Copia sett. prec.
+                      </button>
+                      <div className="border-t border-white/10" />
+                      <button
+                        onClick={() => { setShowMenu(false); handleExport() }}
+                        disabled={exporting}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-white hover:bg-white/10 transition disabled:opacity-40 text-left"
+                      >
+                        <span>↓</span> Scarica PNG
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Bottoni normali — solo desktop */}
               <button onClick={handleCopyPrevWeek} disabled={copying || employees.length === 0}
-                className="hidden sm:flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
-                title="Copia i turni dalla settimana precedente">
+                className="hidden md:flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40">
                 {copying ? <><span className="animate-spin">⟳</span>Copio…</> : <><span>⎘</span>Copia sett. prec.</>}
               </button>
               <button onClick={handleExport} disabled={exporting}
-                className="hidden sm:flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50">
+                className="hidden md:flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50">
                 {exporting ? <><span className="animate-spin">⟳</span>Esporto…</> : <><span>↓</span>Scarica PNG</>}
               </button>
             </div>
