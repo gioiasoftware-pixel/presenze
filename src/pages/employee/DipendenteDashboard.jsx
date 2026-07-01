@@ -141,10 +141,9 @@ function TabPresenze({ id, upcoming }) {
     punchByDay[dk].push(p)
   })
 
-  // Anomalie: giorni passati con ENTRATA senza USCITA
+  // Anomalie: solo giorni già terminati (escluso oggi) con ENTRATA senza USCITA
   const anomalie = Object.entries(punchByDay).filter(([dk, ps]) => {
-    const d = new Date(dk + 'T00:00:00')
-    if (d >= today) return false
+    if (dk >= todayKey) return false
     const entries = ps.filter(p => p.action === 'ENTRATA').length
     const exits   = ps.filter(p => p.action === 'USCITA').length
     return entries > exits
@@ -297,16 +296,21 @@ function TabPresenze({ id, upcoming }) {
 
             if (!shift && dayPunches.length === 0 && isFuture) return null
 
-            const entrata  = dayPunches.find(p => p.action === 'ENTRATA')
-            const uscita   = dayPunches.find(p => p.action === 'USCITA')
-            const diffMin  = calcHoursFromTimes(
-              entrata ? punchToTime(entrata.punched_at) : null,
-              uscita  ? punchToTime(uscita.punched_at)  : null,
-            )
-            const oreLabel = diffMin
-              ? `${Math.floor(diffMin/60)}h${diffMin%60 > 0 ? ` ${diffMin%60}m` : ''}`
+            const entries  = dayPunches.filter(p => p.action === 'ENTRATA')
+            const exits    = dayPunches.filter(p => p.action === 'USCITA')
+            const numPairs = Math.max(entries.length, exits.length)
+            let totalMin   = 0
+            for (let i = 0; i < numPairs; i++) {
+              const diff = calcHoursFromTimes(
+                entries[i] ? punchToTime(entries[i].punched_at) : null,
+                exits[i]   ? punchToTime(exits[i].punched_at)   : null,
+              )
+              if (diff) totalMin += diff
+            }
+            const oreLabel = totalMin > 0
+              ? `${Math.floor(totalMin/60)}h${totalMin%60 > 0 ? ` ${totalMin%60}m` : ''}`
               : null
-            const anomalia = isPast && dayPunches.length > 0 && !uscita
+            const anomalia = dk < todayKey && entries.length > exits.length
 
             return (
               <div key={dk}
@@ -331,11 +335,15 @@ function TabPresenze({ id, upcoming }) {
                       {shift.pairs.map(p => `${p.in}–${p.out}`).join('  |  ')}
                     </p>
                   ) : null}
-                  {dayPunches.length > 0 && (
-                    <div className="flex items-center gap-3 mt-1.5">
-                      {entrata && <span className="text-white text-sm font-bold tabular-nums">→ {punchToTime(entrata.punched_at)}</span>}
-                      {uscita  && <span className="text-petrol-300 text-sm font-bold tabular-nums">← {punchToTime(uscita.punched_at)}</span>}
-                      {oreLabel && <span className="text-petrol-500 text-xs font-semibold ml-auto">{oreLabel}</span>}
+                  {numPairs > 0 && (
+                    <div className="flex flex-col gap-1 mt-1.5">
+                      {Array.from({ length: numPairs }, (_, i) => (
+                        <div key={i} className="flex items-center gap-3">
+                          {entries[i] && <span className="text-white text-sm font-bold tabular-nums">→ {punchToTime(entries[i].punched_at)}</span>}
+                          {exits[i]   && <span className="text-petrol-300 text-sm font-bold tabular-nums">← {punchToTime(exits[i].punched_at)}</span>}
+                          {i === numPairs - 1 && oreLabel && <span className="text-petrol-500 text-xs font-semibold ml-auto">{oreLabel}</span>}
+                        </div>
+                      ))}
                     </div>
                   )}
                   {anomalia && <p className="text-red-400 text-xs font-semibold mt-1">Uscita mancante</p>}
