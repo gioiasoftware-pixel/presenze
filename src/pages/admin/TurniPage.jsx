@@ -174,6 +174,7 @@ export default function TurniPage() {
             shifts={shifts}
             templates={templates}
             onCellChange={handleCellChange}
+            onSaveAsTemplate={handleTemplateSave}
           />
 
           <div className="flex gap-4 text-xs text-petrol-400 flex-wrap">

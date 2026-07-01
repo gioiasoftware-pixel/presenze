@@ -10,10 +10,21 @@ const SPECIAL_STYLE = {
 
 const SPECIALS = ['OFF', 'FERIE', 'MALATTIA', 'PERMESSO']
 
-export default function TurniCell({ cell, templates, onChange }) {
+const COLORS = [
+  'bg-amber-100 text-amber-700',
+  'bg-blue-100 text-blue-700',
+  'bg-purple-100 text-purple-700',
+  'bg-green-100 text-green-700',
+  'bg-gray-100 text-gray-700',
+  'bg-pink-100 text-pink-700',
+  'bg-teal-100 text-teal-700',
+]
+
+export default function TurniCell({ cell, templates, onChange, onSaveAsTemplate }) {
   const isSpecial = typeof cell === 'string'
   const pairs = cell && !isSpecial ? (cell.pairs || []) : []
   const hasShift2 = pairs.length >= 2
+  const [saveModal, setSaveModal] = useState(null) // null | pairs[]
 
   function setPairField(idx, field, value) {
     const next = [...pairs]
@@ -31,57 +42,77 @@ export default function TurniCell({ cell, templates, onChange }) {
     onChange({ pairs: [pairs[0] || { in: '', out: '' }] })
   }
 
+  function handleSaveAsPrefab(name, color) {
+    onSaveAsTemplate({ id: null, name, pairs: saveModal, color })
+    setSaveModal(null)
+  }
+
   return (
-    <div className="px-2 py-1.5 min-h-[48px] group/cell">
+    <>
+      <div className="px-2 py-1.5 min-h-[48px] group/cell">
 
-      {/* STATO SPECIALE */}
-      {isSpecial && (
-        <div className="flex items-center justify-between gap-1">
-          <span className={`px-2 py-0.5 rounded text-xs font-bold ${SPECIAL_STYLE[cell]}`}>
-            {cell}
-          </span>
-          <CellMenu templates={templates} cell={cell} onApply={v => onChange(v)} />
-        </div>
-      )}
-
-      {/* TURNO */}
-      {!isSpecial && (
-        <div className="flex flex-col gap-0.5">
-
-          {/* Riga 1° turno */}
-          <div className="flex items-center gap-1">
-            <TimeInput value={pairs[0]?.in  ?? ''} onChange={v => setPairField(0, 'in',  v)} />
-            <span className="text-petrol-200 text-[10px] leading-none">–</span>
-            <TimeInput value={pairs[0]?.out ?? ''} onChange={v => setPairField(0, 'out', v)} />
-            <CellMenu templates={templates} cell={cell} onApply={v => onChange(v)} />
+        {/* STATO SPECIALE */}
+        {isSpecial && (
+          <div className="flex items-center justify-between gap-1">
+            <span className={`px-2 py-0.5 rounded text-xs font-bold ${SPECIAL_STYLE[cell]}`}>
+              {cell}
+            </span>
+            <CellMenu templates={templates} cell={cell} onApply={v => onChange(v)} onSaveAsPrefab={null} />
           </div>
+        )}
 
-          {/* Riga 2° turno */}
-          {hasShift2 && (
+        {/* TURNO */}
+        {!isSpecial && (
+          <div className="flex flex-col gap-0.5">
+
             <div className="flex items-center gap-1">
-              <TimeInput value={pairs[1]?.in  ?? ''} onChange={v => setPairField(1, 'in',  v)} />
+              <TimeInput value={pairs[0]?.in  ?? ''} onChange={v => setPairField(0, 'in',  v)} />
               <span className="text-petrol-200 text-[10px] leading-none">–</span>
-              <TimeInput value={pairs[1]?.out ?? ''} onChange={v => setPairField(1, 'out', v)} />
-              <button
-                onClick={removeShift2}
-                title="Rimuovi 2° turno"
-                className="shrink-0 text-petrol-200 hover:text-red-400 text-[10px] px-0.5 transition opacity-0 group-hover/cell:opacity-100"
-              >✕</button>
+              <TimeInput value={pairs[0]?.out ?? ''} onChange={v => setPairField(0, 'out', v)} />
+              <CellMenu
+                templates={templates}
+                cell={cell}
+                onApply={v => onChange(v)}
+                onSaveAsPrefab={pairs.length > 0 && pairs[0]?.in && pairs[0]?.out
+                  ? () => setSaveModal(pairs)
+                  : null}
+              />
             </div>
-          )}
 
-          {/* Aggiungi 2° turno */}
-          {!hasShift2 && (
-            <button
-              onClick={addShift2}
-              className="text-petrol-200 hover:text-petrol-500 text-[10px] text-left transition opacity-0 group-hover/cell:opacity-100 leading-none py-0.5"
-            >
-              + 2° turno
-            </button>
-          )}
-        </div>
+            {hasShift2 && (
+              <div className="flex items-center gap-1">
+                <TimeInput value={pairs[1]?.in  ?? ''} onChange={v => setPairField(1, 'in',  v)} />
+                <span className="text-petrol-200 text-[10px] leading-none">–</span>
+                <TimeInput value={pairs[1]?.out ?? ''} onChange={v => setPairField(1, 'out', v)} />
+                <button
+                  onClick={removeShift2}
+                  title="Rimuovi 2° turno"
+                  className="shrink-0 text-petrol-200 hover:text-red-400 text-[10px] px-0.5 transition opacity-0 group-hover/cell:opacity-100"
+                >✕</button>
+              </div>
+            )}
+
+            {!hasShift2 && (
+              <button
+                onClick={addShift2}
+                className="text-petrol-200 hover:text-petrol-500 text-[10px] text-left transition opacity-0 group-hover/cell:opacity-100 leading-none py-0.5"
+              >
+                + 2° turno
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Modal salva come prefab */}
+      {saveModal && (
+        <SavePrefabModal
+          pairs={saveModal}
+          onSave={handleSaveAsPrefab}
+          onClose={() => setSaveModal(null)}
+        />
       )}
-    </div>
+    </>
   )
 }
 
@@ -97,8 +128,77 @@ function TimeInput({ value, onChange }) {
   )
 }
 
+/* Modal nome + colore per salvare come prefab */
+function SavePrefabModal({ pairs, onSave, onClose }) {
+  const [name, setName] = useState('')
+  const [color, setColor] = useState(COLORS[0])
+
+  const pairsLabel = pairs.map(p => `${p.in}–${p.out}`).join(' / ')
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    if (!name.trim()) return
+    onSave(name.trim(), color)
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 bg-petrol-950/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-6 flex flex-col gap-4">
+        <div className="flex justify-between items-center">
+          <h3 className="font-bold text-petrol-900 text-base">Salva come prefab</h3>
+          <button onClick={onClose} className="text-petrol-300 hover:text-petrol-700 text-2xl leading-none">×</button>
+        </div>
+
+        <div className="bg-petrol-50 rounded-xl px-3 py-2 font-mono text-xs text-petrol-500">
+          {pairsLabel}
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div>
+            <label className="text-xs font-semibold text-petrol-600 uppercase tracking-wider block mb-1.5">Nome</label>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Es. Apertura cucina"
+              autoFocus
+              className="w-full border-2 border-petrol-100 rounded-xl px-3 py-2.5 text-sm text-petrol-900 focus:outline-none focus:border-petrol-500 transition"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-petrol-600 uppercase tracking-wider block mb-1.5">Colore</label>
+            <div className="flex gap-2 flex-wrap">
+              {COLORS.map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setColor(c)}
+                  className={`w-7 h-7 rounded-full border-2 ${c.split(' ')[0]} ${color === c ? 'border-gray-800 scale-110' : 'border-transparent'} transition`}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose}
+              className="flex-1 border-2 border-petrol-100 rounded-xl py-2.5 text-sm font-semibold text-petrol-600 hover:bg-petrol-50 transition">
+              Annulla
+            </button>
+            <button type="submit"
+              className="flex-1 bg-petrol-700 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-petrol-600 transition">
+              Salva
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 /* Dropdown hamburger via portal */
-function CellMenu({ templates, cell, onApply }) {
+function CellMenu({ templates, cell, onApply, onSaveAsPrefab }) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef(null)
   const [dropPos, setDropPos] = useState({ top: 0, left: 0 })
@@ -138,7 +238,7 @@ function CellMenu({ templates, cell, onApply }) {
         <div
           data-cell-menu=""
           style={{ position: 'absolute', top: dropPos.top, left: dropPos.left, transform: 'translateX(-100%)', zIndex: 9999 }}
-          className="bg-white rounded-xl shadow-xl border border-petrol-100 py-1.5 min-w-[170px]"
+          className="bg-white rounded-xl shadow-xl border border-petrol-100 py-1.5 min-w-[175px]"
         >
           {/* Prefab */}
           {templates.length > 0 && (
@@ -180,6 +280,19 @@ function CellMenu({ templates, cell, onApply }) {
               ))}
             </div>
           </div>
+
+          {/* Salva come prefab */}
+          {onSaveAsPrefab && (
+            <div className="border-t border-petrol-50 mt-1 pt-1">
+              <button
+                onMouseDown={e => e.stopPropagation()}
+                onClick={() => { onSaveAsPrefab(); setOpen(false) }}
+                className="w-full text-left px-3 py-2 text-xs text-petrol-600 hover:bg-petrol-50 font-semibold transition flex items-center gap-1.5"
+              >
+                <span>★</span> Salva come prefab
+              </button>
+            </div>
+          )}
 
           {/* Cancella */}
           {hasContent && (

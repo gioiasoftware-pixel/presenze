@@ -1,6 +1,6 @@
 import TurniCell from './TurniCell'
 
-export default function TurniGrid({ employees, days, shifts, templates, onCellChange }) {
+export default function TurniGrid({ employees, days, shifts, templates, onCellChange, onSaveAsTemplate }) {
   function getCell(empId, dateKey) {
     return shifts[empId]?.[dateKey] ?? null
   }
@@ -32,6 +32,7 @@ export default function TurniGrid({ employees, days, shifts, templates, onCellCh
                     cell={getCell(emp.id, dateKey)}
                     templates={templates}
                     onChange={value => onCellChange(emp.id, dateKey, value)}
+                    onSaveAsTemplate={onSaveAsTemplate}
                   />
                 </td>
               ))}
