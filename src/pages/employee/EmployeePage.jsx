@@ -285,12 +285,21 @@ export default function EmployeePage() {
         />
       )}
 
-      <button
-        onClick={() => navigate('/admin')}
-        className="text-petrol-700 hover:text-petrol-400 text-xs font-semibold tracking-widest uppercase transition select-none"
-      >
-        ADMIN
-      </button>
+      <div className="flex gap-4">
+        <button
+          onClick={() => navigate('/dipendente')}
+          className="text-petrol-600 hover:text-petrol-300 text-xs font-semibold tracking-widest uppercase transition select-none"
+        >
+          Dipendente
+        </button>
+        <span className="text-petrol-800 text-xs select-none">·</span>
+        <button
+          onClick={() => navigate('/admin')}
+          className="text-petrol-700 hover:text-petrol-400 text-xs font-semibold tracking-widest uppercase transition select-none"
+        >
+          Admin
+        </button>
+      </div>
     </div>
   )
 }

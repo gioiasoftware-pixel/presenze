@@ -1,5 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import EmployeePage from './pages/employee/EmployeePage'
+import DipendenteLoginPage from './pages/employee/DipendenteLoginPage'
+import DipendenteDashboard from './pages/employee/DipendenteDashboard'
 import AdminLogin from './pages/admin/AdminLogin'
 import AdminLayout from './pages/admin/AdminLayout'
 import AdminDashboard from './pages/admin/AdminDashboard'
@@ -22,6 +24,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<EmployeePage />} />
+      <Route path="/dipendente" element={<DipendenteLoginPage />} />
+      <Route path="/dipendente/:id" element={<DipendenteDashboard />} />
       <Route path="/admin" element={<AdminLogin />} />
       <Route path="/admin/dashboard"         element={<AdminArea section="dashboard"><AdminDashboard /></AdminArea>} />
       <Route path="/admin/directory"         element={<AdminArea section="directory"><DirectoryPage /></AdminArea>} />
