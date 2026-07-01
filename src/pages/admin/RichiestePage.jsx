@@ -67,19 +67,28 @@ export default function RichiestePage() {
     setProcessing(req.id)
     const comment = comments[req.id] || null
 
-    // Aggiorna stato richiesta
     await supabase.from('leave_requests').update({
       status:        decision,
       admin_comment: comment,
     }).eq('id', req.id)
 
-    // Se approvata → segna tutti i giorni del range nei turni
+    const days = getDaysInRange(req.date, req.date_to)
+
     if (decision === 'APPROVATA') {
-      const days = getDaysInRange(req.date, req.date_to)
+      // Segna tutti i giorni del range nei turni
       await supabase.from('turni').upsert(
         days.map(date => ({ employee_id: req.employee_id, date, shift_data: req.type })),
         { onConflict: 'employee_id,date' }
       )
+    } else if (decision === 'RIFIUTATA' && req.status === 'APPROVATA') {
+      // Era approvata: rimuovi i turni creati per questo range
+      for (const date of days) {
+        await supabase.from('turni')
+          .delete()
+          .eq('employee_id', req.employee_id)
+          .eq('date', date)
+          .eq('shift_data', req.type)   // cancella solo se è ancora il tipo di questa richiesta
+      }
     }
 
     setProcessing(null)
@@ -172,8 +181,8 @@ export default function RichiestePage() {
                   </p>
                 )}
 
-                {/* Azioni (solo IN_ATTESA) */}
-                {filter === 'IN_ATTESA' && (
+                {/* Azioni: IN_ATTESA → approva + rifiuta | APPROVATA → solo rifiuta */}
+                {(filter === 'IN_ATTESA' || filter === 'APPROVATA') && (
                   <div className="flex flex-col gap-2 pt-1 border-t border-white/10">
                     <input
                       type="text"
@@ -183,17 +192,19 @@ export default function RichiestePage() {
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white placeholder:text-petrol-600 focus:outline-none focus:border-petrol-400 transition"
                     />
                     <div className="flex gap-2">
-                      <button
-                        disabled={processing === req.id}
-                        onClick={() => handleDecision(req, 'APPROVATA')}
-                        className="flex-1 bg-green-700/80 hover:bg-green-600 text-white font-bold rounded-xl py-2.5 text-sm transition disabled:opacity-40">
-                        {processing === req.id ? '…' : 'Approva'}
-                      </button>
+                      {filter === 'IN_ATTESA' && (
+                        <button
+                          disabled={processing === req.id}
+                          onClick={() => handleDecision(req, 'APPROVATA')}
+                          className="flex-1 bg-green-700/80 hover:bg-green-600 text-white font-bold rounded-xl py-2.5 text-sm transition disabled:opacity-40">
+                          {processing === req.id ? '…' : 'Approva'}
+                        </button>
+                      )}
                       <button
                         disabled={processing === req.id}
                         onClick={() => handleDecision(req, 'RIFIUTATA')}
                         className="flex-1 bg-red-800/60 hover:bg-red-700 text-white font-bold rounded-xl py-2.5 text-sm transition disabled:opacity-40">
-                        {processing === req.id ? '…' : 'Rifiuta'}
+                        {processing === req.id ? '…' : filter === 'APPROVATA' ? 'Revoca approvazione' : 'Rifiuta'}
                       </button>
                     </div>
                   </div>
