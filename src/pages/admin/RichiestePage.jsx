@@ -26,6 +26,23 @@ function formatDate(iso) {
   return `${d.getDate()} ${MONTHS_IT[d.getMonth()]} ${d.getFullYear()}`
 }
 
+function toDateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
+}
+
+function getDaysInRange(from, to) {
+  const days = []
+  const d   = new Date(from + 'T00:00:00')
+  const end = new Date((to || from) + 'T00:00:00')
+  while (d <= end) { days.push(toDateKey(d)); d.setDate(d.getDate() + 1) }
+  return days
+}
+
+function countDays(from, to) {
+  if (!from) return 1
+  return getDaysInRange(from, to).length
+}
+
 export default function RichiestePage() {
   const [filter, setFilter]       = useState('IN_ATTESA')
   const [requests, setRequests]   = useState([])
@@ -56,13 +73,13 @@ export default function RichiestePage() {
       admin_comment: comment,
     }).eq('id', req.id)
 
-    // Se approvata → segna nei turni
+    // Se approvata → segna tutti i giorni del range nei turni
     if (decision === 'APPROVATA') {
-      await supabase.from('turni').upsert({
-        employee_id: req.employee_id,
-        date:        req.date,
-        shift_data:  req.type,   // 'FERIE' o 'PERMESSO' come stringa
-      }, { onConflict: 'employee_id,date' })
+      const days = getDaysInRange(req.date, req.date_to)
+      await supabase.from('turni').upsert(
+        days.map(date => ({ employee_id: req.employee_id, date, shift_data: req.type })),
+        { onConflict: 'employee_id,date' }
+      )
     }
 
     setProcessing(null)
@@ -124,8 +141,15 @@ export default function RichiestePage() {
                       {req.type}
                     </span>
                     <span className="text-white font-semibold text-sm">
-                      {formatDate(req.date)}
+                      {req.date_to
+                        ? `${formatDate(req.date)} → ${formatDate(req.date_to)}`
+                        : formatDate(req.date)}
                     </span>
+                    {req.date_to && (
+                      <span className="text-petrol-400 text-xs font-semibold">
+                        {countDays(req.date, req.date_to)} giorni
+                      </span>
+                    )}
                     {filter !== 'IN_ATTESA' && (
                       <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${STATUS_STYLE[req.status]}`}>
                         {STATUS_LABEL[req.status]}

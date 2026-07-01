@@ -218,15 +218,24 @@ function TabPresenze({ id, employee }) {
 
 // ── Componente tab Richieste ──────────────────────────────────────────────────
 
+function countDays(from, to) {
+  if (!from) return 0
+  const end = to && to >= from ? to : from
+  const d1 = new Date(from + 'T00:00:00')
+  const d2 = new Date(end  + 'T00:00:00')
+  return Math.round((d2 - d1) / 86400000) + 1
+}
+
 function TabRichieste({ id }) {
-  const today = new Date()
+  const today    = new Date()
   const todayKey = toDateKey(today)
 
-  const [requests, setRequests]   = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [type, setType]           = useState('FERIE')
-  const [date, setDate]           = useState('')
-  const [note, setNote]           = useState('')
+  const [requests, setRequests]     = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [type, setType]             = useState('FERIE')
+  const [dateFrom, setDateFrom]     = useState('')
+  const [dateTo, setDateTo]         = useState('')
+  const [note, setNote]             = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted]   = useState(false)
 
@@ -243,18 +252,26 @@ function TabRichieste({ id }) {
 
   useEffect(() => { load() }, [id])
 
+  function handleDateFromChange(val) {
+    setDateFrom(val)
+    if (dateTo && dateTo < val) setDateTo(val)
+  }
+
   async function handleSubmit() {
-    if (!date) return
+    if (!dateFrom) return
     setSubmitting(true)
+    const effectiveTo = dateTo && dateTo >= dateFrom ? dateTo : dateFrom
     const { error } = await supabase.from('leave_requests').insert({
       employee_id: id,
       type,
-      date,
-      note: note || null,
-      status: 'IN_ATTESA',
+      date:    dateFrom,
+      date_to: effectiveTo !== dateFrom ? effectiveTo : null,
+      note:    note || null,
+      status:  'IN_ATTESA',
     })
     if (!error) {
-      setDate('')
+      setDateFrom('')
+      setDateTo('')
       setNote('')
       setSubmitted(true)
       setTimeout(() => setSubmitted(false), 2500)
@@ -262,6 +279,8 @@ function TabRichieste({ id }) {
     }
     setSubmitting(false)
   }
+
+  const numDays = countDays(dateFrom, dateTo)
 
   return (
     <div className="flex flex-col gap-5">
@@ -282,17 +301,35 @@ function TabRichieste({ id }) {
           ))}
         </div>
 
-        {/* Data */}
-        <div>
-          <p className="text-petrol-400 text-xs font-semibold mb-1.5">Giorno richiesto</p>
-          <input
-            type="date"
-            min={todayKey}
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-base focus:outline-none focus:border-petrol-400 transition"
-          />
+        {/* Range date */}
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <p className="text-petrol-400 text-xs font-semibold mb-1.5">Dal</p>
+            <input
+              type="date"
+              min={todayKey}
+              value={dateFrom}
+              onChange={e => handleDateFromChange(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white text-sm focus:outline-none focus:border-petrol-400 transition"
+            />
+          </div>
+          <div className="flex-1">
+            <p className="text-petrol-400 text-xs font-semibold mb-1.5">Al</p>
+            <input
+              type="date"
+              min={dateFrom || todayKey}
+              value={dateTo}
+              onChange={e => setDateTo(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white text-sm focus:outline-none focus:border-petrol-400 transition"
+            />
+          </div>
         </div>
+
+        {numDays > 1 && (
+          <p className="text-petrol-400 text-xs font-semibold text-center -mt-1">
+            {numDays} giorni
+          </p>
+        )}
 
         {/* Nota */}
         <div>
@@ -308,7 +345,7 @@ function TabRichieste({ id }) {
 
         <button
           onClick={handleSubmit}
-          disabled={!date || submitting}
+          disabled={!dateFrom || submitting}
           className="w-full bg-petrol-600 hover:bg-petrol-500 text-white font-bold rounded-xl py-3 text-sm transition disabled:opacity-40 active:scale-95"
         >
           {submitted ? '✓ Richiesta inviata' : submitting ? 'Invio…' : 'Invia richiesta'}
@@ -324,28 +361,34 @@ function TabRichieste({ id }) {
           <p className="text-petrol-600 text-sm">Nessuna richiesta inviata.</p>
         ) : (
           <div className="flex flex-col gap-2">
-            {requests.map(r => (
-              <div key={r.id}
-                className="bg-white/5 border border-white/8 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                      r.type === 'FERIE' ? 'bg-green-900/40 text-green-400' : 'bg-yellow-900/40 text-yellow-400'
-                    }`}>{r.type}</span>
-                    <span className="text-white text-sm font-semibold">{formatDateLabel(r.date)}</span>
+            {requests.map(r => {
+              const days = countDays(r.date, r.date_to)
+              return (
+                <div key={r.id}
+                  className="bg-white/5 border border-white/8 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                        r.type === 'FERIE' ? 'bg-green-900/40 text-green-400' : 'bg-yellow-900/40 text-yellow-400'
+                      }`}>{r.type}</span>
+                      <span className="text-white text-sm font-semibold">
+                        {r.date_to ? `${formatDateLabel(r.date)} → ${formatDateLabel(r.date_to)}` : formatDateLabel(r.date)}
+                      </span>
+                      {days > 1 && <span className="text-petrol-500 text-xs">{days}gg</span>}
+                    </div>
+                    {r.note && <p className="text-petrol-400 text-xs mt-1 truncate">"{r.note}"</p>}
+                    {r.admin_comment && (
+                      <p className="text-petrol-400 text-xs mt-1">
+                        <span className="text-petrol-500">Admin:</span> {r.admin_comment}
+                      </p>
+                    )}
                   </div>
-                  {r.note && <p className="text-petrol-400 text-xs mt-1 truncate">"{r.note}"</p>}
-                  {r.admin_comment && (
-                    <p className="text-petrol-400 text-xs mt-1">
-                      <span className="text-petrol-500">Admin:</span> {r.admin_comment}
-                    </p>
-                  )}
+                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full shrink-0 ${REQ_STATUS_STYLE[r.status]}`}>
+                    {REQ_STATUS_LABEL[r.status]}
+                  </span>
                 </div>
-                <span className={`text-xs font-bold px-2.5 py-1 rounded-full shrink-0 ${REQ_STATUS_STYLE[r.status]}`}>
-                  {REQ_STATUS_LABEL[r.status]}
-                </span>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
