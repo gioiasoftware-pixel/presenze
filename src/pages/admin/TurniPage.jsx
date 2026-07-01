@@ -58,27 +58,29 @@ export default function TurniPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Carica templates da Supabase (o semina i default se tabella vuota)
+  // Carica templates per reparto corrente (o semina i default se vuoto per quel reparto)
   useEffect(() => {
     async function loadTemplates() {
+      setTemplates([])
       const { data } = await supabase
         .from('shift_templates')
         .select('*')
+        .eq('department', dept)
         .order('sort_order', { ascending: true })
 
       if (data && data.length > 0) {
         setTemplates(data.map(t => ({ id: t.id, name: t.name, pairs: t.pairs, color: t.color })))
       } else {
-        // Prima volta: semina i default su Supabase
+        // Prima volta per questo reparto: semina i default
         const toInsert = DEFAULT_TEMPLATES.map((t, i) => ({
-          name: t.name, pairs: t.pairs, color: t.color, sort_order: i,
+          name: t.name, pairs: t.pairs, color: t.color, sort_order: i, department: dept,
         }))
         const { data: seeded } = await supabase.from('shift_templates').insert(toInsert).select()
         if (seeded) setTemplates(seeded.map(t => ({ id: t.id, name: t.name, pairs: t.pairs, color: t.color })))
       }
     }
     loadTemplates()
-  }, [])
+  }, [dept])
 
   function prevWeek() { setWeekStart(d => addDays(d, -7)) }
   function nextWeek() { setWeekStart(d => addDays(d, 7)) }
@@ -106,7 +108,7 @@ export default function TurniPage() {
     if (!t.id) {
       // Nuovo template
       const { data, error } = await supabase.from('shift_templates').insert({
-        name: t.name, pairs: t.pairs, color: t.color, sort_order: templates.length,
+        name: t.name, pairs: t.pairs, color: t.color, sort_order: templates.length, department: dept,
       }).select().single()
       if (error) { alert('Errore: ' + error.message); return }
       setTemplates(prev => [...prev, { id: data.id, name: data.name, pairs: data.pairs, color: data.color }])
