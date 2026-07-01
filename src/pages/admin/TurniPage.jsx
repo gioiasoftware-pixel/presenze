@@ -20,8 +20,9 @@ export default function TurniPage() {
   const [employees, setEmployees] = useState([])
   const [shifts, setShifts]       = useState({})
   const [templates, setTemplates] = useState([])
-  const [exporting, setExporting] = useState(false)
-  const [copying, setCopying]     = useState(false)
+  const [exporting, setExporting]         = useState(false)
+  const [copying, setCopying]             = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
 
   const days = useMemo(() => (
     Array.from({ length: 7 }, (_, i) => {
@@ -206,23 +207,43 @@ export default function TurniPage() {
 
       <div className="flex gap-6 items-start">
         <div className="flex-1 min-w-0 flex flex-col gap-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <button onClick={prevWeek} className="border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-white/10 transition">←</button>
-            <span className="font-semibold text-white min-w-[200px] text-center">{formatWeekRange(weekStart)}</span>
+            <span className="font-semibold text-white min-w-[160px] text-center text-sm">{formatWeekRange(weekStart)}</span>
             <button onClick={nextWeek} className="border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-white/10 transition">→</button>
-            <button onClick={goToday} className="text-xs text-petrol-400 hover:text-white transition ml-1 font-medium">Oggi</button>
-            <div className="ml-auto flex items-center gap-2">
+            <button onClick={goToday} className="text-xs text-petrol-400 hover:text-white transition font-medium">Oggi</button>
+            <div className="ml-auto flex items-center gap-2 flex-wrap">
+              {/* Prefab toggle — visibile solo su mobile */}
+              <button
+                onClick={() => setShowTemplates(v => !v)}
+                className="md:hidden flex items-center gap-1.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-3 py-2 text-sm font-semibold transition"
+              >
+                <span>★</span>
+                <span>Prefab</span>
+                <span className="text-petrol-400 text-xs">{showTemplates ? '▲' : '▼'}</span>
+              </button>
               <button onClick={handleCopyPrevWeek} disabled={copying || employees.length === 0}
-                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
+                className="hidden sm:flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
                 title="Copia i turni dalla settimana precedente">
                 {copying ? <><span className="animate-spin">⟳</span>Copio…</> : <><span>⎘</span>Copia sett. prec.</>}
               </button>
               <button onClick={handleExport} disabled={exporting}
-                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50">
+                className="hidden sm:flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50">
                 {exporting ? <><span className="animate-spin">⟳</span>Esporto…</> : <><span>↓</span>Scarica PNG</>}
               </button>
             </div>
           </div>
+
+          {/* Pannello prefab a scomparsa — solo mobile */}
+          {showTemplates && (
+            <div className="md:hidden">
+              <ShiftTemplates
+                templates={templates}
+                onSave={handleTemplateSave}
+                onDelete={handleTemplateDelete}
+              />
+            </div>
+          )}
 
           <TurniGrid
             employees={employees}
@@ -239,7 +260,8 @@ export default function TurniPage() {
           </div>
         </div>
 
-        <div className="w-60 shrink-0">
+        {/* Pannello prefab fisso — solo desktop */}
+        <div className="hidden md:block w-60 shrink-0">
           <ShiftTemplates
             templates={templates}
             onSave={handleTemplateSave}
