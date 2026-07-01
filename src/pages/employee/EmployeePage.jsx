@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import PinModal from './PinModal'
 import StatusMessage from './StatusMessage'
@@ -20,6 +21,7 @@ function getNow() {
 }
 
 export default function EmployeePage() {
+  const navigate = useNavigate()
   const [dept, setDept]               = useState(null)
   const [name, setName]               = useState('')
   const [employeesByDept, setEmployeesByDept] = useState({ SALA: [], CUCINA: [] })
@@ -282,6 +284,13 @@ export default function EmployeePage() {
           onCancel={handlePinCancel}
         />
       )}
+
+      <button
+        onClick={() => navigate('/admin')}
+        className="text-petrol-700 hover:text-petrol-400 text-xs font-semibold tracking-widest uppercase transition select-none"
+      >
+        ADMIN
+      </button>
     </div>
   )
 }
