@@ -7,6 +7,7 @@ const NAV = [
   { to: '/admin/turni',     label: 'Turni',      section: 'turni'      },
   { to: '/admin/log',       label: 'LOG',        section: 'log'        },
   { to: '/admin/riepilogo', label: 'Riepilogo',  section: 'riepilogo'  },
+  { to: '/admin/richieste', label: 'Richieste',  section: 'richieste'  },
 ]
 
 const ROLE_LABEL = {

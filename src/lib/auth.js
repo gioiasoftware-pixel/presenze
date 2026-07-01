@@ -11,8 +11,8 @@ export function getRole() {
 export function canAccess(section) {
   const role = getRole()
   const ACCESS = {
-    senior:   ['dashboard','directory','admins','turni','log','riepilogo'],
-    superior: ['dashboard','turni','log','riepilogo'],
+    senior:   ['dashboard','directory','admins','turni','log','riepilogo','richieste'],
+    superior: ['dashboard','turni','log','riepilogo','richieste'],
     visual:   ['dashboard','log','riepilogo'],
   }
   return ACCESS[role]?.includes(section) ?? false
