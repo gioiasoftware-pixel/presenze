@@ -21,6 +21,7 @@ export default function TurniPage() {
   const [shifts, setShifts]       = useState({})
   const [templates, setTemplates] = useState([])
   const [exporting, setExporting] = useState(false)
+  const [copying, setCopying]     = useState(false)
 
   const days = useMemo(() => (
     Array.from({ length: 7 }, (_, i) => {
@@ -127,6 +128,54 @@ export default function TurniPage() {
     setTemplates(prev => prev.filter(t => t.id !== id))
   }
 
+  async function handleCopyPrevWeek() {
+    if (employees.length === 0) return
+    if (!window.confirm('Copia i turni della settimana precedente in quella corrente? I turni già presenti verranno sovrascritti.')) return
+
+    setCopying(true)
+    try {
+      // Mappa ogni giorno corrente al corrispondente giorno della settimana precedente
+      const dayMap = {}
+      days.forEach(d => {
+        const prevKey = toKey(addDays(weekStart, days.indexOf(d) - 7))
+        dayMap[prevKey] = d.dateKey
+      })
+
+      const prevDateKeys = Object.keys(dayMap)
+
+      const { data: prevRows } = await supabase
+        .from('turni')
+        .select('employee_id, date, shift_data')
+        .in('employee_id', employees.map(e => e.id))
+        .in('date', prevDateKeys)
+
+      if (!prevRows || prevRows.length === 0) {
+        alert('Nessun turno trovato nella settimana precedente.')
+        return
+      }
+
+      const toUpsert = prevRows.map(r => ({
+        employee_id: r.employee_id,
+        date:        dayMap[r.date],
+        shift_data:  r.shift_data,
+      }))
+
+      await supabase.from('turni').upsert(toUpsert, { onConflict: 'employee_id,date' })
+
+      // Aggiorna stato locale
+      setShifts(prev => {
+        const next = { ...prev }
+        toUpsert.forEach(r => {
+          if (!next[r.employee_id]) next[r.employee_id] = {}
+          next[r.employee_id] = { ...next[r.employee_id], [r.date]: r.shift_data }
+        })
+        return next
+      })
+    } finally {
+      setCopying(false)
+    }
+  }
+
   async function handleExport() {
     setExporting(true)
     try {
@@ -162,10 +211,17 @@ export default function TurniPage() {
             <span className="font-semibold text-white min-w-[200px] text-center">{formatWeekRange(weekStart)}</span>
             <button onClick={nextWeek} className="border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-white/10 transition">→</button>
             <button onClick={goToday} className="text-xs text-petrol-400 hover:text-white transition ml-1 font-medium">Oggi</button>
-            <button onClick={handleExport} disabled={exporting}
-              className="ml-auto flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50">
-              {exporting ? <><span className="animate-spin">⟳</span>Esporto…</> : <><span>↓</span>Scarica PNG</>}
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button onClick={handleCopyPrevWeek} disabled={copying || employees.length === 0}
+                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
+                title="Copia i turni dalla settimana precedente">
+                {copying ? <><span className="animate-spin">⟳</span>Copio…</> : <><span>⎘</span>Copia sett. prec.</>}
+              </button>
+              <button onClick={handleExport} disabled={exporting}
+                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50">
+                {exporting ? <><span className="animate-spin">⟳</span>Esporto…</> : <><span>↓</span>Scarica PNG</>}
+              </button>
+            </div>
           </div>
 
           <TurniGrid
