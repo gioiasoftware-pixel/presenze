@@ -7,27 +7,10 @@ const SPECIAL_COLORS = {
   PERMESSO: { bg: '#fef08a', text: '#854d0e' },
 }
 
-async function loadLogoWhite() {
+async function loadLogo() {
   return new Promise(resolve => {
     const img = new Image()
-    img.onload = () => {
-      const tmp = document.createElement('canvas')
-      tmp.width  = img.naturalWidth
-      tmp.height = img.naturalHeight
-      const tc = tmp.getContext('2d')
-      tc.drawImage(img, 0, 0)
-      const d = tc.getImageData(0, 0, tmp.width, tmp.height)
-      for (let i = 0; i < d.data.length; i += 4) {
-        const r = d.data[i], g = d.data[i+1], b = d.data[i+2]
-        if (r > 200 && g > 200 && b > 200) {
-          d.data[i+3] = 0
-        } else {
-          d.data[i] = 255; d.data[i+1] = 255; d.data[i+2] = 255; d.data[i+3] = 255
-        }
-      }
-      tc.putImageData(d, 0, 0)
-      resolve(tmp)
-    }
+    img.onload = () => resolve(img)
     img.onerror = () => resolve(null)
     img.src = '/logo.png'
   })
@@ -73,11 +56,15 @@ export async function exportTurniPng({ employees, days, shifts, dept, weekRange 
   ctx.fillStyle = '#0f2d3d'
   ctx.fillRect(0, 0, W, HEAD_H)
 
-  const logoCanvas = await loadLogoWhite()
-  if (logoCanvas) {
+  const logo = await loadLogo()
+  if (logo) {
     const lh = 36
-    const lw = logoCanvas.width * (lh / logoCanvas.height)
-    ctx.drawImage(logoCanvas, 28, (HEAD_H - lh) / 2, lw, lh)
+    const lw = logo.naturalWidth * (lh / logo.naturalHeight)
+    ctx.save()
+    ctx.filter = 'invert(1)'
+    ctx.globalCompositeOperation = 'screen'
+    ctx.drawImage(logo, 28, (HEAD_H - lh) / 2, lw, lh)
+    ctx.restore()
   }
 
   ctx.textBaseline = 'middle'
