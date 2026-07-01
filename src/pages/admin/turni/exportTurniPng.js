@@ -7,7 +7,6 @@ const SPECIAL_COLORS = {
   PERMESSO: { bg: '#fef08a', text: '#854d0e' },
 }
 
-// Converte il logo nero-su-bianco in bianco-su-trasparente per il header scuro
 async function loadLogoWhite() {
   return new Promise(resolve => {
     const img = new Image()
@@ -21,10 +20,8 @@ async function loadLogoWhite() {
       for (let i = 0; i < d.data.length; i += 4) {
         const r = d.data[i], g = d.data[i+1], b = d.data[i+2]
         if (r > 200 && g > 200 && b > 200) {
-          // bianco → trasparente
           d.data[i+3] = 0
         } else {
-          // nero → bianco
           d.data[i] = 255; d.data[i+1] = 255; d.data[i+2] = 255; d.data[i+3] = 255
         }
       }
@@ -51,12 +48,12 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 export async function exportTurniPng({ employees, days, shifts, dept, weekRange }) {
-  const SCALE   = 2     // retina
-  const NAME_W  = 165
-  const COL_W   = 165
-  const HEAD_H  = 88   // header logo + titolo
-  const THEAD_H = 42   // intestazione colonne
-  const ROW_H   = 76   // altezza riga dipendente
+  const SCALE   = 2
+  const NAME_W  = 175
+  const COL_W   = 175
+  const HEAD_H  = 88
+  const THEAD_H = 42
+  const ROW_H   = 92    // più alto per ospitare font più grandi
   const PAD_BOT = 24
 
   const W = NAME_W + COL_W * days.length
@@ -68,7 +65,7 @@ export async function exportTurniPng({ employees, days, shifts, dept, weekRange 
   const ctx = canvas.getContext('2d')
   ctx.scale(SCALE, SCALE)
 
-  // ── Sfondo totale bianco ──────────────────────────────────────────────────
+  // ── Sfondo bianco ─────────────────────────────────────────────────────────
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, W, H)
 
@@ -76,7 +73,6 @@ export async function exportTurniPng({ employees, days, shifts, dept, weekRange 
   ctx.fillStyle = '#0f2d3d'
   ctx.fillRect(0, 0, W, HEAD_H)
 
-  // Logo bianco nel header
   const logoCanvas = await loadLogoWhite()
   if (logoCanvas) {
     const lh = 36
@@ -84,7 +80,6 @@ export async function exportTurniPng({ employees, days, shifts, dept, weekRange 
     ctx.drawImage(logoCanvas, 28, (HEAD_H - lh) / 2, lw, lh)
   }
 
-  // Testo header
   ctx.textBaseline = 'middle'
   ctx.fillStyle = '#ffffff'
   ctx.font = 'bold 20px "Segoe UI", system-ui, sans-serif'
@@ -99,7 +94,6 @@ export async function exportTurniPng({ employees, days, shifts, dept, weekRange 
   ctx.fillStyle = '#f0f8fb'
   ctx.fillRect(0, HEAD_H, W, THEAD_H)
 
-  // Linea sotto header colonne
   ctx.strokeStyle = '#b0daea'
   ctx.lineWidth = 1.5
   ctx.beginPath()
@@ -131,19 +125,19 @@ export async function exportTurniPng({ employees, days, shifts, dept, weekRange 
       ctx.fillRect(0, y, W, ROW_H)
     }
 
-    // Separatore riga
-    ctx.strokeStyle = '#daeef5'
-    ctx.lineWidth = 1
+    // Separatore riga — più spesso
+    ctx.strokeStyle = '#b0daea'
+    ctx.lineWidth = 2
     ctx.beginPath()
     ctx.moveTo(0, y + ROW_H)
     ctx.lineTo(W, y + ROW_H)
     ctx.stroke()
 
-    // Nome dipendente
+    // Nome: usa nickname se disponibile
     ctx.fillStyle = '#0f2d3d'
     ctx.font = 'bold 13px "Segoe UI", system-ui, sans-serif'
     ctx.textBaseline = 'middle'
-    ctx.fillText(emp.name, 20, y + ROW_H / 2)
+    ctx.fillText(emp.nickname || emp.name, 20, y + ROW_H / 2)
 
     // Separatore colonna nome
     ctx.strokeStyle = '#b0daea'
@@ -157,7 +151,7 @@ export async function exportTurniPng({ employees, days, shifts, dept, weekRange 
     days.forEach((d, ci) => {
       const cx = NAME_W + ci * COL_W
 
-      // Separatore colonna
+      // Separatore colonna verticale
       if (ci > 0) {
         ctx.strokeStyle = '#daeef5'
         ctx.lineWidth = 1
@@ -170,48 +164,51 @@ export async function exportTurniPng({ employees, days, shifts, dept, weekRange 
       const cell = shifts[emp.id]?.[d.dateKey] ?? null
       if (!cell) return
 
-      const px = cx + 10
-      const pw = COL_W - 20
+      const px = cx + 12
+      const pw = COL_W - 24
 
       if (typeof cell === 'string') {
         // Badge stato speciale
         const sc = SPECIAL_COLORS[cell] || { bg: '#e5e7eb', text: '#374151' }
         ctx.fillStyle = sc.bg
-        roundRect(ctx, px, y + 10, pw, ROW_H - 20, 7)
+        roundRect(ctx, px, y + 14, pw, ROW_H - 28, 7)
         ctx.fill()
         ctx.fillStyle = sc.text
-        ctx.font = 'bold 12px "Segoe UI", system-ui, sans-serif'
+        ctx.font = 'bold 13px "Segoe UI", system-ui, sans-serif'
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
         ctx.fillText(cell, cx + COL_W / 2, y + ROW_H / 2)
         ctx.textAlign = 'left'
-      } else if (cell.pairs?.length) {
-        // Orari turno
-        const pairs = cell.pairs
-        if (pairs.length === 1) {
-          // Turno singolo: centrato
-          ctx.fillStyle = '#1b4358'
-          ctx.font = 'bold 12px "Segoe UI Mono", "Consolas", monospace'
-          ctx.textBaseline = 'alphabetic'
-          ctx.fillText(`${pairs[0].in}`, px, y + ROW_H / 2 - 3)
-          ctx.fillStyle = '#2a7f9e'
-          ctx.fillText(`${pairs[0].out}`, px, y + ROW_H / 2 + 14)
-        } else {
-          // Turno spezzato: due linee separate
-          ctx.fillStyle = '#1b4358'
-          ctx.font = 'bold 11px "Segoe UI Mono", "Consolas", monospace'
-          ctx.textBaseline = 'alphabetic'
-          ctx.fillText(`${pairs[0].in}–${pairs[0].out}`, px, y + 22)
 
+      } else if (cell.pairs?.length) {
+        const pairs = cell.pairs
+
+        if (pairs.length === 1) {
+          // Turno singolo — font 50% più grande: 18px
+          ctx.font = 'bold 18px "Segoe UI Mono", "Consolas", monospace'
+          ctx.textBaseline = 'alphabetic'
+          ctx.fillStyle = '#1b4358'
+          ctx.fillText(pairs[0].in, px, y + ROW_H / 2 - 4)
+          ctx.fillStyle = '#2a7f9e'
+          ctx.fillText(pairs[0].out, px, y + ROW_H / 2 + 20)
+
+        } else {
+          // Turno spezzato — font 50% più grande: 16px
+          ctx.font = 'bold 16px "Segoe UI Mono", "Consolas", monospace'
+          ctx.textBaseline = 'alphabetic'
+          ctx.fillStyle = '#1b4358'
+          ctx.fillText(`${pairs[0].in}–${pairs[0].out}`, px, y + 28)
+
+          // Divisore spezzato
           ctx.strokeStyle = '#d9eef6'
-          ctx.lineWidth = 0.75
+          ctx.lineWidth = 1
           ctx.beginPath()
-          ctx.moveTo(px, y + ROW_H / 2 - 1)
-          ctx.lineTo(px + pw, y + ROW_H / 2 - 1)
+          ctx.moveTo(px, y + ROW_H / 2)
+          ctx.lineTo(px + pw, y + ROW_H / 2)
           ctx.stroke()
 
           ctx.fillStyle = '#2a7f9e'
-          ctx.fillText(`${pairs[1].in}–${pairs[1].out}`, px, y + ROW_H - 18)
+          ctx.fillText(`${pairs[1].in}–${pairs[1].out}`, px, y + ROW_H - 16)
         }
       }
     })
