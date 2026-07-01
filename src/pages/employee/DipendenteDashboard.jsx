@@ -100,7 +100,8 @@ function TabPresenze({ id, upcoming }) {
   const [month, setMonth]   = useState(today.getMonth())
   const [turni, setTurni]   = useState({})
   const [punches, setPunches] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading]           = useState(true)
+  const [showAnomalieDetail, setShowAnomalieDetail] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -189,15 +190,39 @@ function TabPresenze({ id, upcoming }) {
 
       {/* ── Anomalia banner ── */}
       {anomalie.length > 0 && (
-        <div className="bg-red-900/30 border border-red-500/30 rounded-2xl px-4 py-3 flex items-center gap-3">
-          <span className="text-red-400 text-xl">⚠</span>
-          <div>
-            <p className="text-red-300 font-bold text-sm">
-              {anomalie.length === 1 ? '1 uscita mancante' : `${anomalie.length} uscite mancanti`}
-            </p>
-            <p className="text-red-400/70 text-xs mt-0.5">Segnalalo al responsabile per la correzione</p>
+        <button
+          onClick={() => setShowAnomalieDetail(v => !v)}
+          className="w-full bg-red-900/30 border border-red-500/30 rounded-2xl px-4 py-3 text-left transition hover:bg-red-900/40"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-red-400 text-xl">⚠</span>
+            <div className="flex-1">
+              <p className="text-red-300 font-bold text-sm">
+                {anomalie.length === 1 ? '1 uscita mancante' : `${anomalie.length} uscite mancanti`}
+              </p>
+              <p className="text-red-400/70 text-xs mt-0.5">Tocca per vedere i dettagli</p>
+            </div>
+            <span className="text-red-400 text-xs">{showAnomalieDetail ? '▲' : '▼'}</span>
           </div>
-        </div>
+
+          {showAnomalieDetail && (
+            <div className="mt-3 pt-3 border-t border-red-500/20 flex flex-col gap-1.5">
+              {anomalie.map(([dk, ps]) => {
+                const d = new Date(dk + 'T00:00:00')
+                const entries = ps.filter(p => p.action === 'ENTRATA')
+                const label = `${DAYS_IT[d.getDay()]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
+                return (
+                  <div key={dk} className="flex items-center justify-between">
+                    <span className="text-red-300 text-xs font-semibold">{label}</span>
+                    <span className="text-red-400/70 text-xs">
+                      entrata {punchToTime(entries[entries.length - 1].punched_at)} senza uscita
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </button>
       )}
 
       {/* ── Turno di oggi ── */}
