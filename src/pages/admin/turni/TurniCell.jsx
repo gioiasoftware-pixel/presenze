@@ -24,22 +24,27 @@ export default function TurniCell({ cell, templates, onChange, onSaveAsTemplate 
   const isSpecial = typeof cell === 'string'
   const pairs = cell && !isSpecial ? (cell.pairs || []) : []
   const hasShift2 = pairs.length >= 2
+  const note = !isSpecial && cell ? (cell.note || '') : ''
   const [saveModal, setSaveModal] = useState(null) // null | pairs[]
 
   function setPairField(idx, field, value) {
     const next = [...pairs]
     if (!next[idx]) next[idx] = { in: '', out: '' }
     next[idx] = { ...next[idx], [field]: value }
-    onChange({ pairs: next })
+    onChange({ pairs: next, ...(note ? { note } : {}) })
+  }
+
+  function handleNoteChange(v) {
+    onChange({ pairs, ...(v ? { note: v } : {}) })
   }
 
   function addShift2() {
     const base = pairs[0] || { in: '', out: '' }
-    onChange({ pairs: [base, { in: '', out: '' }] })
+    onChange({ pairs: [base, { in: '', out: '' }], ...(note ? { note } : {}) })
   }
 
   function removeShift2() {
-    onChange({ pairs: [pairs[0] || { in: '', out: '' }] })
+    onChange({ pairs: [pairs[0] || { in: '', out: '' }], ...(note ? { note } : {}) })
   }
 
   function handleSaveAsPrefab(name, color) {
@@ -57,7 +62,7 @@ export default function TurniCell({ cell, templates, onChange, onSaveAsTemplate 
             <span className={`px-2 py-0.5 rounded text-xs font-bold ${SPECIAL_STYLE[cell]}`}>
               {cell}
             </span>
-            <CellMenu templates={templates} cell={cell} onApply={v => onChange(v)} onSaveAsPrefab={null} />
+            <CellMenu templates={templates} cell={cell} onApply={v => onChange(v)} onSaveAsPrefab={null} note="" onNoteChange={null} />
           </div>
         )}
 
@@ -76,6 +81,8 @@ export default function TurniCell({ cell, templates, onChange, onSaveAsTemplate 
                 onSaveAsPrefab={pairs.length > 0 && pairs[0]?.in && pairs[0]?.out
                   ? () => setSaveModal(pairs)
                   : null}
+                note={note}
+                onNoteChange={handleNoteChange}
               />
             </div>
 
@@ -99,6 +106,10 @@ export default function TurniCell({ cell, templates, onChange, onSaveAsTemplate 
               >
                 + 2° turno
               </button>
+            )}
+
+            {note && (
+              <p className="text-[10px] text-petrol-400 italic px-0.5 pb-0.5 truncate max-w-[160px]">✎ {note}</p>
             )}
           </div>
         )}
@@ -198,7 +209,7 @@ function SavePrefabModal({ pairs, onSave, onClose }) {
 }
 
 /* Dropdown hamburger via portal */
-function CellMenu({ templates, cell, onApply, onSaveAsPrefab }) {
+function CellMenu({ templates, cell, onApply, onSaveAsPrefab, note, onNoteChange }) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef(null)
   const [dropPos, setDropPos] = useState({ top: 0, left: 0 })
@@ -291,6 +302,21 @@ function CellMenu({ templates, cell, onApply, onSaveAsPrefab }) {
               >
                 <span>★</span> Salva come prefab
               </button>
+            </div>
+          )}
+
+          {/* Nota */}
+          {onNoteChange && (
+            <div className="border-t border-petrol-50 mt-1 pt-2 px-2 pb-2">
+              <p className="text-[10px] font-bold text-petrol-400 uppercase tracking-wider mb-1.5 px-1">Nota turno</p>
+              <input
+                type="text"
+                value={note}
+                onChange={e => onNoteChange(e.target.value)}
+                onMouseDown={e => e.stopPropagation()}
+                placeholder="Es. Servizio esterno, Villa Rossi…"
+                className="w-full border border-petrol-200 rounded-lg px-2.5 py-1.5 text-xs text-petrol-800 placeholder:text-petrol-300 focus:outline-none focus:border-petrol-500 transition"
+              />
             </div>
           )}
 

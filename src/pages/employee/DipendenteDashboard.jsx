@@ -241,6 +241,9 @@ function TabPresenze({ id, upcoming }) {
                 {p.in} <span className="text-petrol-400 font-normal text-lg">→</span> {p.out}
               </p>
             ))}
+            {todayShift.note && (
+              <p className="text-petrol-400 text-xs italic mt-1">{todayShift.note}</p>
+            )}
           </div>
         ) : null}
       </div>
@@ -356,9 +359,14 @@ function TabPresenze({ id, upcoming }) {
                       {SPECIAL_LABEL[shift] || shift}
                     </span>
                   ) : shift?.pairs?.length ? (
-                    <p className="text-petrol-300 text-sm font-mono">
-                      {shift.pairs.map(p => `${p.in}–${p.out}`).join('  |  ')}
-                    </p>
+                    <>
+                      <p className="text-petrol-300 text-sm font-mono">
+                        {shift.pairs.map(p => `${p.in}–${p.out}`).join('  |  ')}
+                      </p>
+                      {shift.note && (
+                        <p className="text-petrol-500 text-xs italic mt-0.5">{shift.note}</p>
+                      )}
+                    </>
                   ) : null}
                   {numPairs > 0 && (
                     <div className="flex flex-col gap-1 mt-1.5">
