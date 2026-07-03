@@ -30,13 +30,20 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath()
 }
 
+function truncateText(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text
+  let t = text
+  while (t.length > 0 && ctx.measureText(t + '…').width > maxWidth) t = t.slice(0, -1)
+  return t + '…'
+}
+
 export async function exportTurniPng({ employees, days, shifts, dept, weekRange }) {
   const SCALE   = 2
   const NAME_W  = 175
   const COL_W   = 175
   const HEAD_H  = 88
   const THEAD_H = 42
-  const ROW_H   = 92    // più alto per ospitare font più grandi
+  const ROW_H   = 108   // aumentato per ospitare la riga nota
   const PAD_BOT = 24
 
   const W = NAME_W + COL_W * days.length
@@ -169,18 +176,19 @@ export async function exportTurniPng({ employees, days, shifts, dept, weekRange 
 
       } else if (cell.pairs?.length) {
         const pairs = cell.pairs
+        const note  = cell.note || ''
 
         if (pairs.length === 1) {
-          // Turno singolo — font 50% più grande: 18px
+          // Turno singolo
           ctx.font = 'bold 18px "Segoe UI Mono", "Consolas", monospace'
           ctx.textBaseline = 'alphabetic'
           ctx.fillStyle = '#1b4358'
-          ctx.fillText(pairs[0].in, px, y + ROW_H / 2 - 4)
+          ctx.fillText(pairs[0].in,  px, y + ROW_H / 2 - 8)
           ctx.fillStyle = '#2a7f9e'
-          ctx.fillText(pairs[0].out, px, y + ROW_H / 2 + 20)
+          ctx.fillText(pairs[0].out, px, y + ROW_H / 2 + 16)
 
         } else {
-          // Turno spezzato — font 50% più grande: 16px
+          // Turno spezzato
           ctx.font = 'bold 16px "Segoe UI Mono", "Consolas", monospace'
           ctx.textBaseline = 'alphabetic'
           ctx.fillStyle = '#1b4358'
@@ -195,7 +203,15 @@ export async function exportTurniPng({ employees, days, shifts, dept, weekRange 
           ctx.stroke()
 
           ctx.fillStyle = '#2a7f9e'
-          ctx.fillText(`${pairs[1].in}–${pairs[1].out}`, px, y + ROW_H - 16)
+          ctx.fillText(`${pairs[1].in}–${pairs[1].out}`, px, y + ROW_H / 2 + 26)
+        }
+
+        // Nota turno (se presente)
+        if (note) {
+          ctx.font = 'italic 10px "Segoe UI", system-ui, sans-serif'
+          ctx.textBaseline = 'alphabetic'
+          ctx.fillStyle = '#5a9ab5'
+          ctx.fillText(truncateText(ctx, note, pw), px, y + ROW_H - 10)
         }
       }
     })
