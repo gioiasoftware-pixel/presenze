@@ -13,12 +13,15 @@ const DEPT_STYLE = {
 
 const SPECIAL_CSV = { OFF: 'R', FERIE: 'F', MALATTIA: 'M', PERMESSO: 'PE' }
 
-// ── Utility calcolo ore ───────────────────────────────────────────────────────
+// ── Utility identiche a EmployeeRiepilogoPage (fonte di verità) ──────────────
 
-function roundToHalfHours(timeStr) {
+function roundToHalf(timeStr) {
   if (!timeStr) return null
   const [h, m] = timeStr.split(':').map(Number)
-  return Math.round((h * 60 + m) / 30) * 30 / 60
+  const rounded = Math.round((h * 60 + m) / 30) * 30
+  const rh = Math.floor(rounded / 60) % 24
+  const rm = rounded % 60
+  return `${String(rh).padStart(2,'0')}:${String(rm).padStart(2,'0')}`
 }
 
 function punchToTime(isoStr) {
@@ -26,7 +29,15 @@ function punchToTime(isoStr) {
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
 }
 
-// Accoppia entrate/uscite in ordine cronologico (gestisce mezzanotte)
+function calcHours(inT, outT) {
+  if (!inT || !outT) return null
+  const [ih, im] = inT.split(':').map(Number)
+  const [oh, om] = outT.split(':').map(Number)
+  let diff = (oh * 60 + om) - (ih * 60 + im)
+  if (diff < 0) diff += 24 * 60
+  return diff > 0 ? diff / 60 : null
+}
+
 function buildPairs(sorted) {
   const pairs = []
   let pending = null
@@ -43,32 +54,30 @@ function buildPairs(sorted) {
   return pairs
 }
 
-// punchPairs = array di { entry, exit } già accoppiati cronologicamente
-function calcDayValue(shiftData, punchPairs) {
-  if (!shiftData && punchPairs.length === 0) return ''
-  if (typeof shiftData === 'string') return SPECIAL_CSV[shiftData] || 'R'
-
+// Identica a EmployeeRiepilogoPage — restituisce { type, pairs/value }
+function mergeDay(shiftData, actualPairs) {
+  if (typeof shiftData === 'string') return { type: 'special', value: shiftData }
   const planned = shiftData?.pairs || []
-
-  if (planned.length === 0 && punchPairs.length === 0) return ''
-
-  const numPairs = Math.max(planned.length, punchPairs.length, 1)
-  let total = 0
-
+  if (planned.length === 0 && actualPairs.length === 0) return { type: 'empty' }
+  const numPairs = Math.max(planned.length, actualPairs.length, 1)
+  const pairs = []
   for (let i = 0; i < numPairs; i++) {
     const plan   = planned[i] || null
-    const actual = punchPairs[i] || { entry: null, exit: null }
+    const actual = actualPairs[i] || { entry: null, exit: null }
     const rawIn  = actual.entry ? punchToTime(actual.entry.punched_at) : null
     const rawOut = actual.exit  ? punchToTime(actual.exit.punched_at)  : null
-    const inH    = rawIn  ? roundToHalfHours(rawIn)  : (plan?.in  ? roundToHalfHours(plan.in)  : null)
-    const outH   = rawOut ? roundToHalfHours(rawOut) : (plan?.out ? roundToHalfHours(plan.out) : null)
-    if (inH !== null && outH !== null) {
-      let diff = outH - inH
-      if (diff < 0) diff += 24
-      if (diff > 0) total += diff
-    }
+    const effectiveIn  = (rawIn  ? roundToHalf(rawIn)  : null) ?? plan?.in  ?? null
+    const effectiveOut = (rawOut ? roundToHalf(rawOut) : null) ?? plan?.out ?? null
+    pairs.push({ hours: calcHours(effectiveIn, effectiveOut) })
   }
+  return { type: 'shift', pairs }
+}
 
+function dayToCSV(shiftData, actualPairs) {
+  const merged = mergeDay(shiftData, actualPairs)
+  if (merged.type === 'empty') return ''
+  if (merged.type === 'special') return SPECIAL_CSV[merged.value] || 'R'
+  const total = merged.pairs.reduce((s, p) => s + (p.hours || 0), 0)
   if (total === 0) return ''
   const whole = Math.floor(total)
   const frac  = Math.round((total - whole) * 10)
@@ -176,7 +185,7 @@ export default function RiepilogoPage() {
           const dk    = toDateKey(d)
           const shift = turniMap[emp.id]?.[dk] ?? null
           const pairs = pairsByEmpDate[`${emp.id}|${dk}`] || []
-          const val   = calcDayValue(shift, pairs)
+          const val   = dayToCSV(shift, pairs)
           if (val && !isNaN(parseFloat(val.replace(',', '.')))) {
             totalHours += parseFloat(val.replace(',', '.'))
           }
