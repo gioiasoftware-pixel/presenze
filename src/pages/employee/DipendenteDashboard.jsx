@@ -28,7 +28,8 @@ function calcHoursFromTimes(in_, out_) {
   if (!in_ || !out_) return null
   const [h1, m1] = in_.split(':').map(Number)
   const [h2, m2] = out_.split(':').map(Number)
-  const diff = (h2 * 60 + m2) - (h1 * 60 + m1)
+  let diff = (h2 * 60 + m2) - (h1 * 60 + m1)
+  if (diff < 0) diff += 24 * 60
   return diff > 0 ? diff : null
 }
 
@@ -134,20 +135,34 @@ function TabPresenze({ id, upcoming }) {
     if (month === 11) { setYear(y => y + 1); setMonth(0) } else setMonth(m => m + 1)
   }
 
-  // Raggruppa punch per giorno
-  const punchByDay = {}
-  punches.forEach(p => {
-    const dk = new Date(p.punched_at).toLocaleDateString('sv')
-    if (!punchByDay[dk]) punchByDay[dk] = []
-    punchByDay[dk].push(p)
-  })
+  // Costruisce coppie entrata→uscita in ordine cronologico (gestisce mezzanotte)
+  const sortedPunches = [...punches].sort((a, b) => new Date(a.punched_at) - new Date(b.punched_at))
+  const allPairs = []
+  let pendingEntry = null
+  for (const p of sortedPunches) {
+    if (p.action === 'ENTRATA') {
+      if (pendingEntry) allPairs.push({ entry: pendingEntry, exit: null })
+      pendingEntry = p
+    } else {
+      allPairs.push({ entry: pendingEntry, exit: p })
+      pendingEntry = null
+    }
+  }
+  if (pendingEntry) allPairs.push({ entry: pendingEntry, exit: null })
 
-  // Anomalie: solo giorni già terminati (escluso oggi) con ENTRATA senza USCITA
-  const anomalie = Object.entries(punchByDay).filter(([dk, ps]) => {
+  // Raggruppa coppie per giorno dell'entrata (non della data calendario)
+  const pairsByDay = {}
+  for (const pair of allPairs) {
+    const ref = pair.entry || pair.exit
+    const dk  = new Date(ref.punched_at).toLocaleDateString('sv')
+    if (!pairsByDay[dk]) pairsByDay[dk] = []
+    pairsByDay[dk].push(pair)
+  }
+
+  // Anomalie: giorni passati con almeno una coppia senza uscita
+  const anomalie = Object.entries(pairsByDay).filter(([dk, pairs]) => {
     if (dk >= todayKey) return false
-    const entries = ps.filter(p => p.action === 'ENTRATA').length
-    const exits   = ps.filter(p => p.action === 'USCITA').length
-    return entries > exits
+    return pairs.some(pair => pair.entry && !pair.exit)
   })
 
   // Totale ore mese
@@ -161,14 +176,14 @@ function TabPresenze({ id, upcoming }) {
     const shift = turni[dk]
     if (typeof shift === 'string' && shift === 'FERIE') ferieUsate++
 
-    const dayPunches = punchByDay[dk] || []
-    if (dayPunches.length > 0) giorniLavorati++
+    const dayPairs = pairsByDay[dk] || []
+    if (dayPairs.length > 0) giorniLavorati++
 
-    const entries = dayPunches.filter(p => p.action === 'ENTRATA').map(p => punchToTime(p.punched_at))
-    const exits   = dayPunches.filter(p => p.action === 'USCITA').map(p => punchToTime(p.punched_at))
-    const pairs   = Math.min(entries.length, exits.length)
-    for (let i = 0; i < pairs; i++) {
-      const diff = calcHoursFromTimes(entries[i], exits[i])
+    for (const pair of dayPairs) {
+      const diff = calcHoursFromTimes(
+        pair.entry ? punchToTime(pair.entry.punched_at) : null,
+        pair.exit  ? punchToTime(pair.exit.punched_at)  : null,
+      )
       if (diff) totalMinutes += diff
     }
   })
@@ -317,28 +332,24 @@ function TabPresenze({ id, upcoming }) {
           {days.map(d => {
             const dk         = toDateKey(d)
             const shift      = turni[dk] ?? null
-            const dayPunches = punchByDay[dk] || []
             const isToday    = todayKey === dk
             const isPast     = d < today && !isToday
             const isFuture   = d > today
+            const dayPairs   = pairsByDay[dk] || []
 
-            if (!shift && dayPunches.length === 0 && isFuture) return null
-
-            const entries  = dayPunches.filter(p => p.action === 'ENTRATA')
-            const exits    = dayPunches.filter(p => p.action === 'USCITA')
-            const numPairs = Math.max(entries.length, exits.length)
+            if (!shift && dayPairs.length === 0 && isFuture) return null
             let totalMin   = 0
-            for (let i = 0; i < numPairs; i++) {
+            for (const pair of dayPairs) {
               const diff = calcHoursFromTimes(
-                entries[i] ? punchToTime(entries[i].punched_at) : null,
-                exits[i]   ? punchToTime(exits[i].punched_at)   : null,
+                pair.entry ? punchToTime(pair.entry.punched_at) : null,
+                pair.exit  ? punchToTime(pair.exit.punched_at)  : null,
               )
               if (diff) totalMin += diff
             }
             const oreLabel = totalMin > 0
               ? `${Math.floor(totalMin/60)}h${totalMin%60 > 0 ? ` ${totalMin%60}m` : ''}`
               : null
-            const anomalia = dk < todayKey && entries.length > exits.length
+            const anomalia = dk < todayKey && dayPairs.some(p => p.entry && !p.exit)
 
             return (
               <div key={dk}
@@ -368,13 +379,13 @@ function TabPresenze({ id, upcoming }) {
                       )}
                     </>
                   ) : null}
-                  {numPairs > 0 && (
+                  {dayPairs.length > 0 && (
                     <div className="flex flex-col gap-1 mt-1.5">
-                      {Array.from({ length: numPairs }, (_, i) => (
+                      {dayPairs.map((pair, i) => (
                         <div key={i} className="flex items-center gap-3">
-                          {entries[i] && <span className="text-white text-sm font-bold tabular-nums">→ {punchToTime(entries[i].punched_at)}</span>}
-                          {exits[i]   && <span className="text-petrol-300 text-sm font-bold tabular-nums">← {punchToTime(exits[i].punched_at)}</span>}
-                          {i === numPairs - 1 && oreLabel && <span className="text-petrol-500 text-xs font-semibold ml-auto">{oreLabel}</span>}
+                          {pair.entry && <span className="text-white text-sm font-bold tabular-nums">→ {punchToTime(pair.entry.punched_at)}</span>}
+                          {pair.exit  && <span className="text-petrol-300 text-sm font-bold tabular-nums">← {punchToTime(pair.exit.punched_at)}</span>}
+                          {i === dayPairs.length - 1 && oreLabel && <span className="text-petrol-500 text-xs font-semibold ml-auto">{oreLabel}</span>}
                         </div>
                       ))}
                     </div>

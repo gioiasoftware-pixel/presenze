@@ -53,6 +53,16 @@ const NAV = [
       </svg>
     ),
   },
+  {
+    to: '/admin/statistiche', label: 'Statistiche', section: 'statistiche',
+    icon: (
+      <svg viewBox="0 0 16 16" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1" y="9" width="3" height="6" rx="0.8"/>
+        <rect x="6" y="5" width="3" height="10" rx="0.8"/>
+        <rect x="11" y="2" width="3" height="13" rx="0.8"/>
+      </svg>
+    ),
+  },
 ]
 
 const ROLE_LABEL = {

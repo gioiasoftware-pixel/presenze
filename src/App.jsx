@@ -11,6 +11,7 @@ import LogPage from './pages/admin/LogPage'
 import RiepilogoPage from './pages/admin/RiepilogoPage'
 import EmployeeRiepilogoPage from './pages/admin/EmployeeRiepilogoPage'
 import RichiestePage from './pages/admin/RichiestePage'
+import StatistichePage from './pages/admin/StatistichePage'
 import ProtectedRoute from './components/shared/ProtectedRoute'
 
 function AdminArea({ section, children }) {
@@ -35,6 +36,7 @@ export default function App() {
       <Route path="/admin/riepilogo"         element={<AdminArea section="riepilogo"><RiepilogoPage /></AdminArea>} />
       <Route path="/admin/riepilogo/:id"     element={<AdminArea section="riepilogo"><EmployeeRiepilogoPage /></AdminArea>} />
       <Route path="/admin/richieste"         element={<AdminArea section="richieste"><RichiestePage /></AdminArea>} />
+      <Route path="/admin/statistiche"       element={<AdminArea section="statistiche"><StatistichePage /></AdminArea>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

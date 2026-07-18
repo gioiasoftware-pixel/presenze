@@ -214,10 +214,10 @@ export default function TurniPage() {
             <button onClick={nextWeek} className="border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-white/10 transition">→</button>
             <button onClick={goToday} className="text-xs text-petrol-400 hover:text-white transition font-medium">Oggi</button>
             <div className="ml-auto flex items-center gap-2">
-              {/* Prefab toggle — solo mobile */}
+              {/* Prefab toggle — tutti gli schermi */}
               <button
                 onClick={() => setShowTemplates(v => !v)}
-                className="md:hidden flex items-center gap-1.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-3 py-2 text-sm font-semibold transition"
+                className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-3 py-2 text-sm font-semibold transition"
               >
                 <span>★</span>
                 <span className="text-petrol-400 text-xs">{showTemplates ? '▲' : '▼'}</span>
@@ -294,14 +294,16 @@ export default function TurniPage() {
           </div>
         </div>
 
-        {/* Pannello prefab fisso — solo desktop */}
-        <div className="hidden md:block w-60 shrink-0">
-          <ShiftTemplates
-            templates={templates}
-            onSave={handleTemplateSave}
-            onDelete={handleTemplateDelete}
-          />
-        </div>
+        {/* Pannello prefab — desktop (sidebar a scomparsa) */}
+        {showTemplates && (
+          <div className="hidden md:block w-60 shrink-0">
+            <ShiftTemplates
+              templates={templates}
+              onSave={handleTemplateSave}
+              onDelete={handleTemplateDelete}
+            />
+          </div>
+        )}
       </div>
     </>
   )

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 
@@ -22,7 +22,8 @@ function calcHours(inT, outT) {
   if (!inT || !outT) return null
   const [ih, im] = inT.split(':').map(Number)
   const [oh, om] = outT.split(':').map(Number)
-  const diff = (oh * 60 + om) - (ih * 60 + im)
+  let diff = (oh * 60 + om) - (ih * 60 + im)
+  if (diff < 0) diff += 24 * 60
   return diff > 0 ? diff / 60 : null
 }
 
@@ -51,6 +52,23 @@ function monthLabel(year, month) {
   return new Date(year, month, 1).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
 }
 
+// Costruisce coppie entrata→uscita in ordine cronologico (gestisce mezzanotte)
+function buildPairs(sorted) {
+  const pairs = []
+  let pending = null
+  for (const p of sorted) {
+    if (p.action === 'ENTRATA') {
+      if (pending) pairs.push({ entry: pending, exit: null })
+      pending = p
+    } else {
+      pairs.push({ entry: pending, exit: p })
+      pending = null
+    }
+  }
+  if (pending) pairs.push({ entry: pending, exit: null })
+  return pairs
+}
+
 // ── Merge turno + timbrature ──────────────────────────────────────────────────
 
 const SPECIAL_STYLE = {
@@ -60,22 +78,22 @@ const SPECIAL_STYLE = {
   PERMESSO: 'bg-yellow-100 text-yellow-700',
 }
 
-function mergeDay(shiftData, punches) {
+function mergeDay(shiftData, actualPairs) {
   if (typeof shiftData === 'string') return { type: 'special', value: shiftData }
 
   const planned = shiftData?.pairs || []
-  const entries = punches.filter(p => p.action === 'ENTRATA').map(p => punchToTime(p.punched_at)).sort()
-  const exits   = punches.filter(p => p.action === 'USCITA').map(p => punchToTime(p.punched_at)).sort()
 
-  if (planned.length === 0 && entries.length === 0 && exits.length === 0) return { type: 'empty' }
+  if (planned.length === 0 && actualPairs.length === 0) return { type: 'empty' }
 
-  const numPairs = Math.max(planned.length, entries.length, exits.length, 1)
+  const numPairs = Math.max(planned.length, actualPairs.length, 1)
   const pairs = []
 
   for (let i = 0; i < numPairs; i++) {
     const plan   = planned[i] || null
-    const rawIn  = entries[i] || null
-    const rawOut = exits[i]   || null
+    const actual = actualPairs[i] || { entry: null, exit: null }
+
+    const rawIn  = actual.entry ? punchToTime(actual.entry.punched_at) : null
+    const rawOut = actual.exit  ? punchToTime(actual.exit.punched_at)  : null
 
     const roundedIn  = rawIn  ? roundToHalf(rawIn)  : null
     const roundedOut = rawOut ? roundToHalf(rawOut) : null
@@ -84,12 +102,14 @@ function mergeDay(shiftData, punches) {
     const effectiveOut = roundedOut ?? plan?.out ?? null
 
     pairs.push({
-      plannedIn:   plan?.in  || null,
-      plannedOut:  plan?.out || null,
+      plannedIn:    plan?.in  || null,
+      plannedOut:   plan?.out || null,
       effectiveIn,
       effectiveOut,
       fromPunchIn:  roundedIn  !== null,
       fromPunchOut: roundedOut !== null,
+      entryPunch:   actual.entry || null,
+      exitPunch:    actual.exit  || null,
       hours: calcHours(effectiveIn, effectiveOut),
     })
   }
@@ -108,6 +128,12 @@ export default function EmployeeRiepilogoPage() {
   const [employee, setEmployee] = useState(null)
   const [rows, setRows]         = useState([])
   const [loading, setLoading]   = useState(true)
+  const [allPunches, setAllPunches] = useState([])
+
+  // editing = { type:'edit'|'add', punchId?:string, dateKey:string, action:'ENTRATA'|'USCITA', pairIdx:number, nextDay:bool }
+  const [editing, setEditing]   = useState(null)
+  const [editTime, setEditTime] = useState('')
+  const [saving, setSaving]     = useState(false)
 
   useEffect(() => {
     supabase.from('employees').select('id, name, nickname, department, weekly_hours')
@@ -115,54 +141,112 @@ export default function EmployeeRiepilogoPage() {
       .then(({ data }) => setEmployee(data))
   }, [id])
 
-  useEffect(() => {
-    async function loadMonth() {
-      setLoading(true)
-      const days       = getDaysInMonth(year, month)
-      const firstDay   = toDateKey(days[0])
-      const lastDay    = toDateKey(days[days.length - 1])
+  const loadMonth = useCallback(async () => {
+    setLoading(true)
+    const days     = getDaysInMonth(year, month)
+    const firstDay = toDateKey(days[0])
+    const lastDay  = toDateKey(days[days.length - 1])
+    // Estendi di 6 ore per catturare uscite dopo mezzanotte dell'ultimo giorno
+    const nextDay  = new Date(days[days.length - 1])
+    nextDay.setDate(nextDay.getDate() + 1)
+    const nextDayKey = toDateKey(nextDay)
 
-      const [{ data: turniData }, { data: punchData }] = await Promise.all([
-        supabase.from('turni').select('date, shift_data')
-          .eq('employee_id', id).gte('date', firstDay).lte('date', lastDay),
-        supabase.from('punches').select('action, punched_at')
-          .eq('employee_id', id)
-          .gte('punched_at', `${firstDay}T00:00:00`)
-          .lte('punched_at', `${lastDay}T23:59:59`)
-          .order('punched_at'),
-      ])
+    const [{ data: turniData }, { data: punchData }] = await Promise.all([
+      supabase.from('turni').select('date, shift_data')
+        .eq('employee_id', id).gte('date', firstDay).lte('date', lastDay),
+      supabase.from('punches').select('id, action, punched_at')
+        .eq('employee_id', id)
+        .gte('punched_at', `${firstDay}T00:00:00`)
+        .lte('punched_at', `${nextDayKey}T05:59:59`)
+        .order('punched_at'),
+    ])
 
-      const turniByDate = {}
-      turniData?.forEach(r => { turniByDate[r.date] = r.shift_data })
+    setAllPunches(punchData || [])
 
-      const punchesByDate = {}
-      punchData?.forEach(p => {
-        const dateKey = new Date(p.punched_at).toLocaleDateString('sv')
-        if (!punchesByDate[dateKey]) punchesByDate[dateKey] = []
-        punchesByDate[dateKey].push(p)
-      })
+    const turniByDate = {}
+    turniData?.forEach(r => { turniByDate[r.date] = r.shift_data })
 
-      const built = days.map(d => {
-        const key     = toDateKey(d)
-        const shift   = turniByDate[key] ?? null
-        const punches = punchesByDate[key] || []
-        const merged  = mergeDay(shift, punches)
-        return { date: d, dateKey: key, merged }
-      }).filter(r => r.merged.type !== 'empty')
-
-      setRows(built)
-      setLoading(false)
+    // Costruisce coppie cross-midnight e raggruppa per giorno dell'entrata
+    const allPairs = buildPairs(punchData || [])
+    const pairsByDate = {}
+    for (const pair of allPairs) {
+      const ref = pair.entry || pair.exit
+      const dk  = new Date(ref.punched_at).toLocaleDateString('sv')
+      if (dk >= firstDay && dk <= lastDay) {
+        if (!pairsByDate[dk]) pairsByDate[dk] = []
+        pairsByDate[dk].push(pair)
+      }
     }
-    if (id) loadMonth()
+
+    const built = days.map(d => {
+      const key         = toDateKey(d)
+      const shift       = turniByDate[key] ?? null
+      const actualPairs = pairsByDate[key] || []
+      const merged      = mergeDay(shift, actualPairs)
+      return { date: d, dateKey: key, merged }
+    }).filter(r => r.merged.type !== 'empty')
+
+    setRows(built)
+    setLoading(false)
   }, [id, year, month])
 
+  useEffect(() => { if (id) loadMonth() }, [loadMonth])
+
   function prevMonth() {
-    if (month === 0) { setYear(y => y - 1); setMonth(11) }
-    else setMonth(m => m - 1)
+    if (month === 0) { setYear(y => y - 1); setMonth(11) } else setMonth(m => m - 1)
   }
   function nextMonth() {
-    if (month === 11) { setYear(y => y + 1); setMonth(0) }
-    else setMonth(m => m + 1)
+    if (month === 11) { setYear(y => y + 1); setMonth(0) } else setMonth(m => m + 1)
+  }
+
+  // ── Edit handlers ─────────────────────────────────────────────────────────
+
+  function startEdit(punch) {
+    setEditing({ type: 'edit', punchId: punch.id, action: punch.action })
+    setEditTime(punchToTime(punch.punched_at))
+  }
+
+  function startAdd(dateKey, action, pairIdx) {
+    setEditing({ type: 'add', dateKey, action, pairIdx, nextDay: false })
+    setEditTime('')
+  }
+
+  function cancelEdit() { setEditing(null); setEditTime('') }
+
+  async function saveEdit() {
+    if (!editTime) return
+    setSaving(true)
+    try {
+      if (editing.type === 'edit') {
+        const punch = allPunches.find(p => p.id === editing.punchId)
+        if (!punch) return
+        const orig = new Date(punch.punched_at)
+        const [h, m] = editTime.split(':').map(Number)
+        orig.setHours(h, m, 0, 0)
+        await supabase.from('punches').update({ punched_at: orig.toISOString() }).eq('id', editing.punchId)
+      } else {
+        const [h, m] = editTime.split(':').map(Number)
+        const base = new Date(editing.dateKey + 'T12:00:00')
+        if (editing.nextDay) base.setDate(base.getDate() + 1)
+        base.setHours(h, m, 0, 0)
+        await supabase.from('punches').insert({
+          employee_id: id,
+          action: editing.action,
+          punched_at: base.toISOString(),
+        })
+      }
+      setEditing(null)
+      setEditTime('')
+      await loadMonth()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function deletePunch(punchId) {
+    if (!window.confirm('Eliminare questa timbratura?')) return
+    await supabase.from('punches').delete().eq('id', punchId)
+    await loadMonth()
   }
 
   const totalHours = rows.reduce((sum, r) => {
@@ -173,6 +257,11 @@ export default function EmployeeRiepilogoPage() {
   const dayLabel = (date) =>
     date.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })
       .replace(/^./, c => c.toUpperCase())
+
+  const isEditing = (punch) => punch && editing?.type === 'edit' && editing.punchId === punch.id
+  const isAdding  = (dateKey, action, pairIdx) =>
+    editing?.type === 'add' && editing.dateKey === dateKey &&
+    editing.action === action && editing.pairIdx === pairIdx
 
   return (
     <>
@@ -229,7 +318,6 @@ export default function EmployeeRiepilogoPage() {
                   const isFirst = rowIdx === 0
                   const borderClass = !isFirst ? 'border-t-2 border-petrol-100' : ''
 
-                  // Stato speciale: OFF, FERIE, ecc.
                   if (merged.type === 'special') return (
                     <tr key={dateKey} className={`hover:bg-petrol-50/50 transition ${borderClass}`}>
                       <td className="px-5 py-3 font-semibold text-petrol-700 text-sm">{dayLabel(date)}</td>
@@ -251,7 +339,6 @@ export default function EmployeeRiepilogoPage() {
                         pi === 0 && !isFirst ? 'border-t-2 border-petrol-100' : ''
                       } ${pi > 0 ? 'border-t border-dashed border-petrol-50' : ''}`}
                     >
-                      {/* Giorno: solo prima riga, rowSpan sul numero di pair */}
                       {pi === 0 && (
                         <td rowSpan={nPairs}
                           className="px-5 py-3 font-semibold text-petrol-700 text-sm align-middle border-r border-petrol-100">
@@ -259,24 +346,59 @@ export default function EmployeeRiepilogoPage() {
                         </td>
                       )}
 
-                      {/* Turno pianificato */}
                       <td className="px-5 py-3 font-mono text-xs text-petrol-300">
                         {pair.plannedIn && pair.plannedOut
                           ? `${pair.plannedIn}–${pair.plannedOut}`
                           : <span className="italic">—</span>}
                       </td>
 
-                      {/* Entrata effettiva */}
-                      <td className="px-5 py-3">
-                        <TimeCell time={pair.effectiveIn} fromPunch={pair.fromPunchIn} planned={pair.plannedIn} />
+                      {/* Entrata */}
+                      <td className="px-5 py-2">
+                        {isEditing(pair.entryPunch) ? (
+                          <EditInput value={editTime} onChange={setEditTime} onSave={saveEdit} onCancel={cancelEdit} saving={saving} />
+                        ) : isAdding(dateKey, 'ENTRATA', pi) ? (
+                          <EditInput value={editTime} onChange={setEditTime} onSave={saveEdit} onCancel={cancelEdit} saving={saving} />
+                        ) : pair.entryPunch ? (
+                          <EditableTimeCell
+                            time={pair.effectiveIn}
+                            fromPunch={pair.fromPunchIn}
+                            planned={pair.plannedIn}
+                            onEdit={() => startEdit(pair.entryPunch)}
+                            onDelete={() => deletePunch(pair.entryPunch.id)}
+                          />
+                        ) : (
+                          <AddPunchButton onClick={() => startAdd(dateKey, 'ENTRATA', pi)} />
+                        )}
                       </td>
 
-                      {/* Uscita effettiva */}
-                      <td className="px-5 py-3">
-                        <TimeCell time={pair.effectiveOut} fromPunch={pair.fromPunchOut} planned={pair.plannedOut} />
+                      {/* Uscita */}
+                      <td className="px-5 py-2">
+                        {isEditing(pair.exitPunch) ? (
+                          <EditInput value={editTime} onChange={setEditTime} onSave={saveEdit} onCancel={cancelEdit} saving={saving} />
+                        ) : isAdding(dateKey, 'USCITA', pi) ? (
+                          <EditInput
+                            value={editTime}
+                            onChange={setEditTime}
+                            onSave={saveEdit}
+                            onCancel={cancelEdit}
+                            saving={saving}
+                            showNextDay
+                            nextDay={editing?.nextDay || false}
+                            onNextDayChange={v => setEditing(prev => ({ ...prev, nextDay: v }))}
+                          />
+                        ) : pair.exitPunch ? (
+                          <EditableTimeCell
+                            time={pair.effectiveOut}
+                            fromPunch={pair.fromPunchOut}
+                            planned={pair.plannedOut}
+                            onEdit={() => startEdit(pair.exitPunch)}
+                            onDelete={() => deletePunch(pair.exitPunch.id)}
+                          />
+                        ) : (
+                          <AddPunchButton onClick={() => startAdd(dateKey, 'USCITA', pi)} />
+                        )}
                       </td>
 
-                      {/* Ore: solo nell'ultima riga del giorno, senza rowSpan */}
                       {pi === nPairs - 1 ? (
                         <td className="px-5 py-3 text-right font-bold text-petrol-800 align-middle">
                           {fmtHours(dayHours)}
@@ -308,7 +430,7 @@ export default function EmployeeRiepilogoPage() {
       <div className="flex gap-5 mt-4 text-xs text-petrol-400 flex-wrap">
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-petrol-600 inline-block"></span>
-          Orario da timbratura (arrotondato)
+          Orario da timbratura (arrotondato) — clicca per modificare
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-petrol-200 inline-block"></span>
@@ -319,16 +441,77 @@ export default function EmployeeRiepilogoPage() {
   )
 }
 
-function TimeCell({ time, fromPunch, planned }) {
-  if (!time) return <span className="text-petrol-200 text-xs">—</span>
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function EditInput({ value, onChange, onSave, onCancel, saving, showNextDay, nextDay, onNextDayChange }) {
   return (
-    <span className={`font-mono font-semibold text-sm flex items-center gap-1.5 ${fromPunch ? 'text-petrol-800' : 'text-petrol-300'}`}>
-      {time}
-      {!fromPunch && planned && (
-        <span className="text-[10px] bg-amber-50 text-amber-500 border border-amber-200 px-1 rounded font-bold">
-          turno
-        </span>
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1">
+        <input
+          type="time"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          autoFocus
+          className="border border-petrol-300 rounded px-1.5 py-0.5 text-sm font-mono text-petrol-800 w-24 focus:outline-none focus:border-petrol-500"
+        />
+        <button onClick={onSave} disabled={saving || !value}
+          className="text-green-600 hover:text-green-700 font-bold text-base px-1 disabled:opacity-40 transition">
+          ✓
+        </button>
+        <button onClick={onCancel}
+          className="text-red-400 hover:text-red-600 font-bold text-base px-1 transition">
+          ×
+        </button>
+      </div>
+      {showNextDay && (
+        <label className="flex items-center gap-1.5 text-xs text-petrol-500 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={nextDay}
+            onChange={e => onNextDayChange(e.target.checked)}
+            className="accent-petrol-600"
+          />
+          giorno successivo (dopo mezzanotte)
+        </label>
       )}
-    </span>
+    </div>
+  )
+}
+
+function EditableTimeCell({ time, fromPunch, planned, onEdit, onDelete }) {
+  return (
+    <div className="flex items-center gap-1.5 group">
+      <span
+        onClick={onEdit}
+        className={`font-mono font-semibold text-sm flex items-center gap-1.5 cursor-pointer hover:underline ${fromPunch ? 'text-petrol-800' : 'text-petrol-300'}`}
+      >
+        {time}
+        {!fromPunch && planned && (
+          <span className="text-[10px] bg-amber-50 text-amber-500 border border-amber-200 px-1 rounded font-bold">
+            turno
+          </span>
+        )}
+      </span>
+      {fromPunch && (
+        <button
+          onClick={onDelete}
+          className="text-red-400 hover:text-red-600 text-xs font-bold opacity-0 group-hover:opacity-60 hover:!opacity-100 transition"
+          title="Elimina timbratura"
+        >
+          ×
+        </button>
+      )}
+    </div>
+  )
+}
+
+function AddPunchButton({ onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-petrol-300 hover:text-petrol-600 text-xs font-semibold border border-dashed border-petrol-200 hover:border-petrol-400 rounded px-2 py-0.5 transition"
+    >
+      + Aggiungi
+    </button>
   )
 }

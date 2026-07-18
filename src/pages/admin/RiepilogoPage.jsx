@@ -26,24 +26,47 @@ function punchToTime(isoStr) {
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
 }
 
-function calcDayValue(shiftData, punches) {
-  if (!shiftData && punches.length === 0) return ''
+// Accoppia entrate/uscite in ordine cronologico (gestisce mezzanotte)
+function buildPairs(sorted) {
+  const pairs = []
+  let pending = null
+  for (const p of sorted) {
+    if (p.action === 'ENTRATA') {
+      if (pending) pairs.push({ entry: pending, exit: null })
+      pending = p
+    } else {
+      pairs.push({ entry: pending, exit: p })
+      pending = null
+    }
+  }
+  if (pending) pairs.push({ entry: pending, exit: null })
+  return pairs
+}
+
+// punchPairs = array di { entry, exit } già accoppiati cronologicamente
+function calcDayValue(shiftData, punchPairs) {
+  if (!shiftData && punchPairs.length === 0) return ''
   if (typeof shiftData === 'string') return SPECIAL_CSV[shiftData] || 'R'
 
   const planned = shiftData?.pairs || []
-  const entries = punches.filter(p => p.action === 'ENTRATA').map(p => punchToTime(p.punched_at)).sort()
-  const exits   = punches.filter(p => p.action === 'USCITA').map(p => punchToTime(p.punched_at)).sort()
 
-  if (planned.length === 0 && entries.length === 0 && exits.length === 0) return ''
+  if (planned.length === 0 && punchPairs.length === 0) return ''
 
-  const numPairs = Math.max(planned.length, entries.length, exits.length, 1)
+  const numPairs = Math.max(planned.length, punchPairs.length, 1)
   let total = 0
 
   for (let i = 0; i < numPairs; i++) {
-    const plan = planned[i] || null
-    const inH  = entries[i] ? roundToHalfHours(entries[i]) : (plan?.in  ? roundToHalfHours(plan.in)  : null)
-    const outH = exits[i]   ? roundToHalfHours(exits[i])   : (plan?.out ? roundToHalfHours(plan.out) : null)
-    if (inH !== null && outH !== null && outH > inH) total += outH - inH
+    const plan   = planned[i] || null
+    const actual = punchPairs[i] || { entry: null, exit: null }
+    const rawIn  = actual.entry ? punchToTime(actual.entry.punched_at) : null
+    const rawOut = actual.exit  ? punchToTime(actual.exit.punched_at)  : null
+    const inH    = rawIn  ? roundToHalfHours(rawIn)  : (plan?.in  ? roundToHalfHours(plan.in)  : null)
+    const outH   = rawOut ? roundToHalfHours(rawOut) : (plan?.out ? roundToHalfHours(plan.out) : null)
+    if (inH !== null && outH !== null) {
+      let diff = outH - inH
+      if (diff < 0) diff += 24
+      if (diff > 0) total += diff
+    }
   }
 
   if (total === 0) return ''
@@ -101,6 +124,9 @@ export default function RiepilogoPage() {
       const days     = getDaysInMonth(year, month)
       const firstDay = toDateKey(days[0])
       const lastDay  = toDateKey(days[days.length - 1])
+      const nextDayDate = new Date(days[days.length - 1])
+      nextDayDate.setDate(nextDayDate.getDate() + 1)
+      const nextDayKey = toDateKey(nextDayDate)
 
       const [{ data: turniData }, { data: punchData }] = await Promise.all([
         supabase.from('turni').select('employee_id, date, shift_data')
@@ -109,61 +135,59 @@ export default function RiepilogoPage() {
         supabase.from('punches').select('employee_id, action, punched_at')
           .in('employee_id', employees.map(e => e.id))
           .gte('punched_at', `${firstDay}T00:00:00`)
-          .lte('punched_at', `${lastDay}T23:59:59`)
+          .lte('punched_at', `${nextDayKey}T05:59:59`)
           .order('punched_at'),
       ])
 
-      // Indicizza turni per employee+date
+      // Turni per employee+date
       const turniMap = {}
       turniData?.forEach(r => {
         if (!turniMap[r.employee_id]) turniMap[r.employee_id] = {}
         turniMap[r.employee_id][r.date] = r.shift_data
       })
 
-      // Indicizza timbrature per employee+date
-      const punchMap = {}
-      punchData?.forEach(p => {
-        const dk = new Date(p.punched_at).toLocaleDateString('sv')
-        const k  = `${p.employee_id}|${dk}`
-        if (!punchMap[k]) punchMap[k] = []
-        punchMap[k].push(p)
-      })
+      // Stesso algoritmo di EmployeeRiepilogoPage:
+      // per ogni dipendente → buildPairs in ordine cronologico → raggruppa per data ENTRATA
+      const pairsByEmpDate = {}
+      for (const emp of employees) {
+        const empPunches = (punchData || []).filter(p => p.employee_id === emp.id)
+        const pairs = buildPairs(empPunches) // già sorted per punched_at da Supabase
+        for (const pair of pairs) {
+          const ref = pair.entry || pair.exit
+          if (!ref) continue
+          const dk = new Date(ref.punched_at).toLocaleDateString('sv')
+          if (dk < firstDay || dk > lastDay) continue
+          const k = `${emp.id}|${dk}`
+          if (!pairsByEmpDate[k]) pairsByEmpDate[k] = []
+          pairsByEmpDate[k].push(pair)
+        }
+      }
 
       const monthName = MONTHS_IT[month].toUpperCase()
-
-      // Riga 1: mese + giorni della settimana
       const row1 = ['', '', '', `MESE DI ${monthName} ${year}`,
         ...days.map(d => DAYS_IT[d.getDay()]), 'TOT', '']
-
-      // Riga 2: intestazioni colonne
       const row2 = ['Ragione sociale', 'Sede lavoro', 'Matricola', 'Cognome e Nome',
         ...days.map((_, i) => i + 1), '', 'Note']
-
       const rows = [csvRow(row1), csvRow(row2)]
 
       for (const emp of employees) {
         let totalHours = 0
-
         const dayCells = days.map(d => {
-          const dk      = toDateKey(d)
-          const shift   = turniMap[emp.id]?.[dk] ?? null
-          const punches = punchMap[`${emp.id}|${dk}`] || []
-          const val     = calcDayValue(shift, punches)
-
+          const dk    = toDateKey(d)
+          const shift = turniMap[emp.id]?.[dk] ?? null
+          const pairs = pairsByEmpDate[`${emp.id}|${dk}`] || []
+          const val   = calcDayValue(shift, pairs)
           if (val && !isNaN(parseFloat(val.replace(',', '.')))) {
             totalHours += parseFloat(val.replace(',', '.'))
           }
           return val
         })
-
         const totWhole = Math.floor(totalHours)
         const totFrac  = Math.round((totalHours - totWhole) * 10)
         const totStr   = totalHours > 0 ? `${totWhole},${totFrac === 0 ? '0' : totFrac}` : '0,0'
-
         rows.push(csvRow(['HEY', emp.department, '', emp.name, ...dayCells, totStr, '']))
       }
 
-      // BOM UTF-8 per apertura corretta in Excel italiano
       const csv  = '﻿' + rows.join('\r\n')
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
       const url  = URL.createObjectURL(blob)
