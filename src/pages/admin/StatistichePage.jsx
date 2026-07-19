@@ -75,6 +75,16 @@ function punchTime(iso) {
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
 }
 
+// Identica a EmployeeRiepilogoPage — arrotonda al mezzo-quarto d'ora più vicino
+function roundToHalf(timeStr) {
+  if (!timeStr) return null
+  const [h, m] = timeStr.split(':').map(Number)
+  const rounded = Math.round((h * 60 + m) / 30) * 30
+  const rh = Math.floor(rounded / 60) % 24
+  const rm = rounded % 60
+  return `${String(rh).padStart(2,'0')}:${String(rm).padStart(2,'0')}`
+}
+
 // Ritorna le ore di sovrapposizione tra la coppia [entryTime, exitTime] e la fascia [fS, fE]
 function calcOverlapHours(entryTime, exitTime, fS, fE) {
   let sIn = toMin(entryTime), sOut = toMin(exitTime)
@@ -257,17 +267,16 @@ export default function StatistichePage() {
         if (!numPairs) continue
 
         for (let i = 0; i < numPairs; i++) {
-          const actual = actualDay[i] || null
+          const actual = actualDay[i] || { entry: null, exit: null }
           const plan   = plannedDay[i] || null
-          let inT = null, outT = null
 
-          if (actual?.entry && actual?.exit) {
-            inT  = punchTime(actual.entry.punched_at)
-            outT = punchTime(actual.exit.punched_at)
-          } else if (plan?.in && plan?.out) {
-            inT  = plan.in
-            outT = plan.out
-          }
+          // Stessa logica di mergeDay in EmployeeRiepilogoPage:
+          // arrotonda la timbratura al mezzo quarto, fallback all'orario pianificato
+          const rawIn  = actual.entry ? punchTime(actual.entry.punched_at) : null
+          const rawOut = actual.exit  ? punchTime(actual.exit.punched_at)  : null
+          const inT    = (rawIn  ? roundToHalf(rawIn)  : null) ?? plan?.in  ?? null
+          const outT   = (rawOut ? roundToHalf(rawOut) : null) ?? plan?.out ?? null
+
           if (!inT || !outT) continue
 
           for (const f of fasce) {
