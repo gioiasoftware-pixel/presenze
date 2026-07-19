@@ -304,7 +304,8 @@ export default function StatistichePage() {
   const totActual  = stats.some(r => r.actual !== null) ? stats.reduce((s, r) => s + (r.actual || 0), 0) : null
 
   // — vista tabella servizi —
-  const [tableView, setTableView] = useState('fascia') // 'fascia' | 'mese'
+  const [tableView, setTableView]       = useState('fascia') // 'fascia' | 'mese'
+  const [selectedMonth, setSelectedMonth] = useState(null)   // 0-11 | null
 
   // ── Servizi: dati derivati ────────────────────────────────────────────────
 
@@ -721,7 +722,12 @@ export default function StatistichePage() {
                               <th className="text-left px-5 py-3 text-xs font-bold text-petrol-600 uppercase tracking-wider sticky left-0 bg-petrol-50 z-10">Dipendente</th>
                               {servDept === 'TUTTI' && <th className="text-center px-3 py-3 text-xs font-bold text-petrol-600 uppercase tracking-wider">Rep.</th>}
                               {MONTHS_IT.map((m, i) => (
-                                <th key={m} className={`text-center px-2 py-3 text-xs font-bold uppercase tracking-wider ${i === today.getMonth() && servYear === today.getFullYear() ? 'text-petrol-800 bg-petrol-100' : 'text-petrol-500'}`}>{m}</th>
+                                <th key={m} onClick={() => setSelectedMonth(selectedMonth === i ? null : i)}
+                                  className={`text-center px-2 py-3 text-xs font-bold uppercase tracking-wider cursor-pointer transition select-none ${
+                                    selectedMonth === i ? 'bg-petrol-700 text-white' :
+                                    i === today.getMonth() && servYear === today.getFullYear() ? 'text-petrol-800 bg-petrol-100 hover:bg-petrol-200' :
+                                    'text-petrol-500 hover:bg-petrol-100 hover:text-petrol-800'
+                                  }`}>{m}</th>
                               ))}
                               <th className="text-center px-4 py-3 text-xs font-bold text-petrol-600 uppercase tracking-wider">Totale reale</th>
                               <th className="text-center px-4 py-3 text-xs font-bold text-petrol-400 uppercase tracking-wider">Stima anno</th>
@@ -785,6 +791,90 @@ export default function StatistichePage() {
                         </table>
                       )}
                     </div>
+
+                    {/* ── Pannello dettaglio mese ── */}
+                    {tableView === 'mese' && selectedMonth !== null && (() => {
+                      const sm = selectedMonth
+                      const maxEmpH = Math.max(...servEmps.map(emp => fasce.reduce((s,f) => s+(servData[emp.id]?.[sm]?.[f.id]||0), 0)), 1)
+                      return (
+                        <div className="border-t-2 border-petrol-100 bg-petrol-50 px-5 py-5">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="font-bold text-petrol-800 text-sm">
+                              {MONTHS_IT[sm]} {servYear} — distribuzione per fascia
+                            </h4>
+                            <button onClick={() => setSelectedMonth(null)}
+                              className="text-petrol-400 hover:text-petrol-800 text-lg leading-none transition">×</button>
+                          </div>
+
+                          {/* Legenda */}
+                          <div className="flex flex-wrap gap-3 mb-4">
+                            {fasce.map(f => (
+                              <span key={f.id} className="flex items-center gap-1.5 text-xs text-petrol-600">
+                                <span className="w-3 h-3 rounded-sm inline-block" style={{ background: f.color }}></span>
+                                {f.name}
+                              </span>
+                            ))}
+                          </div>
+
+                          {/* Barre per dipendente */}
+                          <div className="flex flex-col gap-3">
+                            {servEmps.map(emp => {
+                              const monthTot = fasce.reduce((s,f) => s+(servData[emp.id]?.[sm]?.[f.id]||0), 0)
+                              if (monthTot < 0.1) return null
+                              const pct = (monthTot / maxEmpH) * 100
+                              return (
+                                <div key={emp.id} className="flex items-center gap-3">
+                                  <div className="w-28 shrink-0 text-right">
+                                    <span className="text-xs font-semibold text-petrol-700 block truncate">{emp.nickname || emp.name}</span>
+                                    {servDept === 'TUTTI' && <span className="text-[9px] text-petrol-400">{emp.department}</span>}
+                                  </div>
+                                  {/* barra impilata */}
+                                  <div className="flex-1 h-6 bg-petrol-100 rounded-lg overflow-hidden">
+                                    <div className="h-full flex" style={{ width: `${pct}%` }}>
+                                      {fasce.map(f => {
+                                        const h = servData[emp.id]?.[sm]?.[f.id] || 0
+                                        if (!h) return null
+                                        return <div key={f.id} style={{ width: `${(h/monthTot)*100}%`, background: f.color }} />
+                                      })}
+                                    </div>
+                                  </div>
+                                  {/* numeri per fascia */}
+                                  <div className="w-64 shrink-0 flex flex-wrap gap-x-3 gap-y-0.5">
+                                    {fasce.map(f => {
+                                      const h = servData[emp.id]?.[sm]?.[f.id] || 0
+                                      if (!h) return null
+                                      return (
+                                        <span key={f.id} className="text-xs tabular-nums" style={{ color: f.color }}>
+                                          {f.name}: <span className="font-bold">{fmtH(h)}</span>
+                                        </span>
+                                      )
+                                    })}
+                                    <span className="text-xs font-black text-petrol-900 tabular-nums w-full">{fmtH(monthTot)} tot</span>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+
+                          {/* Totale mese */}
+                          <div className="mt-4 pt-3 border-t border-petrol-200 flex flex-wrap gap-4">
+                            {fasce.map(f => {
+                              const tot = servEmps.reduce((s,emp) => s+(servData[emp.id]?.[sm]?.[f.id]||0), 0)
+                              if (!tot) return null
+                              return (
+                                <span key={f.id} className="text-xs tabular-nums">
+                                  <span className="font-semibold" style={{ color: f.color }}>{f.name}</span>
+                                  <span className="text-petrol-600"> {fmtH(tot)}</span>
+                                </span>
+                              )
+                            })}
+                            <span className="text-xs font-black text-petrol-900 tabular-nums ml-auto">
+                              Totale mese: {fmtH(servEmps.reduce((s,emp) => s+fasce.reduce((ss,f) => ss+(servData[emp.id]?.[sm]?.[f.id]||0),0), 0))}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )
               })()}
