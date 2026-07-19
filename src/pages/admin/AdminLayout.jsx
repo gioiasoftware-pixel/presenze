@@ -115,7 +115,7 @@ export default function AdminLayout({ children }) {
               </div>
             </div>
           )}
-          <a href="https://heysupport.netlify.app/admin/referral" target="_blank" rel="noopener noreferrer"
+          <a href="https://heyrestaurant.it/admin" target="_blank" rel="noopener noreferrer"
             className="text-petrol-400 hover:text-white text-sm font-medium transition mb-2">
             HEY Supports ↗
           </a>
