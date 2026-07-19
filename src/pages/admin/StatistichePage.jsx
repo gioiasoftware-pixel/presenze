@@ -231,40 +231,47 @@ export default function StatistichePage() {
       const empPunches = (punchData || []).filter(p => p.employee_id === emp.id)
       const actualPairs = buildPairs(empPunches)
 
-      // Raggruppa coppie effettive per data entrata
+      // Raggruppa coppie effettive per data entrata (solo date nell'anno)
       const pairsByDate = {}
       for (const pair of actualPairs) {
         const ref = pair.entry || pair.exit
         if (!ref) continue
         const dk = new Date(ref.punched_at).toLocaleDateString('sv')
+        if (dk < firstDay || dk > lastDay) continue
         if (!pairsByDate[dk]) pairsByDate[dk] = []
         pairsByDate[dk].push(pair)
       }
 
-      // Registra ore effettive per fascia
-      for (const [dk, pairs] of Object.entries(pairsByDate)) {
-        const m = new Date(dk).getMonth()
-        for (const { entry, exit } of pairs) {
-          if (!entry || !exit) continue
-          const eT = punchTime(entry.punched_at), xT = punchTime(exit.punched_at)
-          for (const f of fasce) {
-            const h = calcOverlapHours(eT, xT, f.start, f.end)
-            if (h > 0.01) result[emp.id][m][f.id] = (result[emp.id][m][f.id] || 0) + h
-          }
-        }
-      }
-
-      // Fallback ai turni pianificati per i giorni senza timbrature (stessa logica riepilogo)
+      // Stessa logica di mergeDay: per ogni giorno, itera per indice accoppiando
+      // effettivo (se presente) altrimenti pianificato — gestisce turni parziali
       const empTurni = turniMap[emp.id] || {}
-      for (const [dk, shift] of Object.entries(empTurni)) {
-        if (pairsByDate[dk]) continue                            // già coperto da timbrature
-        if (!shift || typeof shift === 'string') continue        // OFF/FERIE/ecc.
-        const planned = shift.pairs || []
+      const allDates = new Set([...Object.keys(pairsByDate), ...Object.keys(empTurni)])
+
+      for (const dk of allDates) {
+        if (dk < firstDay || dk > lastDay) continue
         const m = new Date(dk).getMonth()
-        for (const plan of planned) {
-          if (!plan.in || !plan.out) continue
+        const actualDay  = pairsByDate[dk] || []
+        const shift      = empTurni[dk]
+        const plannedDay = (shift && typeof shift !== 'string') ? (shift.pairs || []) : []
+        const numPairs   = Math.max(actualDay.length, plannedDay.length)
+        if (!numPairs) continue
+
+        for (let i = 0; i < numPairs; i++) {
+          const actual = actualDay[i] || null
+          const plan   = plannedDay[i] || null
+          let inT = null, outT = null
+
+          if (actual?.entry && actual?.exit) {
+            inT  = punchTime(actual.entry.punched_at)
+            outT = punchTime(actual.exit.punched_at)
+          } else if (plan?.in && plan?.out) {
+            inT  = plan.in
+            outT = plan.out
+          }
+          if (!inT || !outT) continue
+
           for (const f of fasce) {
-            const h = calcOverlapHours(plan.in, plan.out, f.start, f.end)
+            const h = calcOverlapHours(inT, outT, f.start, f.end)
             if (h > 0.01) result[emp.id][m][f.id] = (result[emp.id][m][f.id] || 0) + h
           }
         }
