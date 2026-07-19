@@ -46,6 +46,11 @@ export default function AdminLogin() {
           <p className="text-petrol-300 text-sm">Accesso amministratore</p>
         </div>
 
+        <button onClick={() => navigate('/')}
+          className="text-petrol-400 hover:text-white text-sm font-medium transition text-center -mt-4">
+          ← Torna alle firme
+        </button>
+
         <div className="bg-white rounded-3xl shadow-2xl p-8">
           <form onSubmit={handleSubmit} className="flex flex-col gap-5">
 
