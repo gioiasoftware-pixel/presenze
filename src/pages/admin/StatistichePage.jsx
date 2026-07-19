@@ -201,14 +201,27 @@ export default function StatistichePage() {
     if (!list.length) { setServData({}); setServLoading(false); return }
 
     const firstDay = `${servYear}-01-01`
+    const lastDay  = `${servYear}-12-31`
     const nextYear = `${servYear + 1}-01-01`
+    const empIds   = list.map(e => e.id)
 
-    const { data: punchData } = await supabase
-      .from('punches').select('employee_id, action, punched_at')
-      .in('employee_id', list.map(e => e.id))
-      .gte('punched_at', `${firstDay}T00:00:00`)
-      .lte('punched_at', `${nextYear}T05:59:59`)
-      .order('punched_at')
+    const [{ data: punchData }, { data: turniData }] = await Promise.all([
+      supabase.from('punches').select('employee_id, action, punched_at')
+        .in('employee_id', empIds)
+        .gte('punched_at', `${firstDay}T00:00:00`)
+        .lte('punched_at', `${nextYear}T05:59:59`)
+        .order('punched_at'),
+      supabase.from('turni').select('employee_id, date, shift_data')
+        .in('employee_id', empIds)
+        .gte('date', firstDay).lte('date', lastDay),
+    ])
+
+    // Turni per employee+date
+    const turniMap = {}
+    turniData?.forEach(r => {
+      if (!turniMap[r.employee_id]) turniMap[r.employee_id] = {}
+      turniMap[r.employee_id][r.date] = r.shift_data
+    })
 
     const result = {}
     for (const emp of list) {
@@ -216,15 +229,44 @@ export default function StatistichePage() {
       for (let m = 0; m < 12; m++) result[emp.id][m] = {}
 
       const empPunches = (punchData || []).filter(p => p.employee_id === emp.id)
-      const pairs = buildPairs(empPunches)
+      const actualPairs = buildPairs(empPunches)
 
-      for (const { entry, exit } of pairs) {
-        if (!entry || !exit) continue
-        const m = new Date(entry.punched_at).getMonth()
-        const eT = punchTime(entry.punched_at), xT = punchTime(exit.punched_at)
-        for (const f of fasce) {
-          const h = calcOverlapHours(eT, xT, f.start, f.end)
-          if (h > 0.01) result[emp.id][m][f.id] = (result[emp.id][m][f.id] || 0) + h
+      // Raggruppa coppie effettive per data entrata
+      const pairsByDate = {}
+      for (const pair of actualPairs) {
+        const ref = pair.entry || pair.exit
+        if (!ref) continue
+        const dk = new Date(ref.punched_at).toLocaleDateString('sv')
+        if (!pairsByDate[dk]) pairsByDate[dk] = []
+        pairsByDate[dk].push(pair)
+      }
+
+      // Registra ore effettive per fascia
+      for (const [dk, pairs] of Object.entries(pairsByDate)) {
+        const m = new Date(dk).getMonth()
+        for (const { entry, exit } of pairs) {
+          if (!entry || !exit) continue
+          const eT = punchTime(entry.punched_at), xT = punchTime(exit.punched_at)
+          for (const f of fasce) {
+            const h = calcOverlapHours(eT, xT, f.start, f.end)
+            if (h > 0.01) result[emp.id][m][f.id] = (result[emp.id][m][f.id] || 0) + h
+          }
+        }
+      }
+
+      // Fallback ai turni pianificati per i giorni senza timbrature (stessa logica riepilogo)
+      const empTurni = turniMap[emp.id] || {}
+      for (const [dk, shift] of Object.entries(empTurni)) {
+        if (pairsByDate[dk]) continue                            // già coperto da timbrature
+        if (!shift || typeof shift === 'string') continue        // OFF/FERIE/ecc.
+        const planned = shift.pairs || []
+        const m = new Date(dk).getMonth()
+        for (const plan of planned) {
+          if (!plan.in || !plan.out) continue
+          for (const f of fasce) {
+            const h = calcOverlapHours(plan.in, plan.out, f.start, f.end)
+            if (h > 0.01) result[emp.id][m][f.id] = (result[emp.id][m][f.id] || 0) + h
+          }
         }
       }
     }
@@ -260,6 +302,9 @@ export default function StatistichePage() {
   const maxH       = Math.max(...stats.map(s => Math.max(s.planned || 0, s.actual || 0, 1)), 1)
   const totPlanned = stats.reduce((s, r) => s + r.planned, 0)
   const totActual  = stats.some(r => r.actual !== null) ? stats.reduce((s, r) => s + (r.actual || 0), 0) : null
+
+  // — vista tabella servizi —
+  const [tableView, setTableView] = useState('fascia') // 'fascia' | 'mese'
 
   // ── Servizi: dati derivati ────────────────────────────────────────────────
 
@@ -591,71 +636,158 @@ export default function StatistichePage() {
                 </div>
               </div>
 
-              {/* ── Tabella annuale dipendente×fascia ── */}
-              <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b-2 border-petrol-100 bg-petrol-50">
-                        <th className="text-left px-5 py-3 text-xs font-bold text-petrol-600 uppercase tracking-wider">Dipendente</th>
-                        {servDept === 'TUTTI' && (
-                          <th className="text-center px-3 py-3 text-xs font-bold text-petrol-600 uppercase tracking-wider">Reparto</th>
-                        )}
-                        {fasce.map(f => (
-                          <th key={f.id} className="text-center px-4 py-3 text-xs font-bold uppercase tracking-wider" style={{ color: f.color }}>
-                            {f.name}
-                          </th>
+              {/* ── Tabella ── */}
+              {(() => {
+                const monthsElapsed = servYear < today.getFullYear() ? 12 : today.getMonth() + 1
+                const deptCols = servDept === 'TUTTI' ? 1 : 0
+
+                return (
+                  <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+                    {/* toggle vista */}
+                    <div className="flex items-center justify-between px-5 pt-4 pb-2 border-b border-petrol-100">
+                      <h3 className="font-bold text-petrol-700 text-sm">Dettaglio</h3>
+                      <div className="flex bg-petrol-50 rounded-xl p-1 gap-1 border border-petrol-100">
+                        {[['fascia','Per fascia'],['mese','Per mese']].map(([id,lbl]) => (
+                          <button key={id} onClick={() => setTableView(id)}
+                            className={`px-4 py-1 rounded-lg text-xs font-semibold transition ${
+                              tableView === id ? 'bg-petrol-600 text-white shadow' : 'text-petrol-400 hover:text-petrol-700'
+                            }`}>{lbl}</button>
                         ))}
-                        <th className="text-center px-4 py-3 text-xs font-bold text-petrol-600 uppercase tracking-wider">Totale anno</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {servEmps.map(emp => {
-                        const yearTot = fasce.reduce((s, f) => s + (annualByEmpFascia[emp.id]?.[f.id] || 0), 0)
-                        return (
-                          <tr key={emp.id} className="border-t border-petrol-100 hover:bg-petrol-50/40 transition">
-                            <td className="px-5 py-3 font-semibold text-petrol-800">{emp.nickname || emp.name}</td>
-                            {servDept === 'TUTTI' && (
-                              <td className="px-3 py-3 text-center">
-                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${emp.department === 'SALA' ? 'bg-petrol-100 text-petrol-700' : 'bg-amber-100 text-amber-700'}`}>
-                                  {emp.department}
-                                </span>
-                              </td>
-                            )}
-                            {fasce.map(f => {
-                              const h = annualByEmpFascia[emp.id]?.[f.id] || 0
-                              const pct = yearTot > 0 ? Math.round((h / yearTot) * 100) : 0
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      {tableView === 'fascia' ? (
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b-2 border-petrol-100 bg-petrol-50">
+                              <th className="text-left px-5 py-3 text-xs font-bold text-petrol-600 uppercase tracking-wider">Dipendente</th>
+                              {servDept === 'TUTTI' && <th className="text-center px-3 py-3 text-xs font-bold text-petrol-600 uppercase tracking-wider">Reparto</th>}
+                              {fasce.map(f => (
+                                <th key={f.id} className="text-center px-4 py-3 text-xs font-bold uppercase tracking-wider" style={{ color: f.color }}>{f.name}</th>
+                              ))}
+                              <th className="text-center px-4 py-3 text-xs font-bold text-petrol-600 uppercase tracking-wider">Totale reale</th>
+                              <th className="text-center px-4 py-3 text-xs font-bold text-petrol-400 uppercase tracking-wider">Stima anno</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {servEmps.map(emp => {
+                              const yearTot = fasce.reduce((s, f) => s + (annualByEmpFascia[emp.id]?.[f.id] || 0), 0)
+                              const stima   = monthsElapsed < 12 && yearTot > 0 ? (yearTot / monthsElapsed) * 12 : null
                               return (
-                                <td key={f.id} className="px-4 py-3 text-center tabular-nums">
-                                  {h > 0.1 ? (
-                                    <div>
-                                      <span className="font-bold text-petrol-900 block">{fmtH(h)}</span>
-                                      <span className="text-[10px] text-petrol-400">{pct}%</span>
-                                    </div>
-                                  ) : <span className="text-petrol-200 text-xs">—</span>}
-                                </td>
+                                <tr key={emp.id} className="border-t border-petrol-100 hover:bg-petrol-50/40 transition">
+                                  <td className="px-5 py-3 font-semibold text-petrol-800">{emp.nickname || emp.name}</td>
+                                  {servDept === 'TUTTI' && (
+                                    <td className="px-3 py-3 text-center">
+                                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${emp.department === 'SALA' ? 'bg-petrol-100 text-petrol-700' : 'bg-amber-100 text-amber-700'}`}>{emp.department}</span>
+                                    </td>
+                                  )}
+                                  {fasce.map(f => {
+                                    const h = annualByEmpFascia[emp.id]?.[f.id] || 0
+                                    const pct = yearTot > 0 ? Math.round((h / yearTot) * 100) : 0
+                                    return (
+                                      <td key={f.id} className="px-4 py-3 text-center tabular-nums">
+                                        {h > 0.1 ? <div><span className="font-bold text-petrol-900 block">{fmtH(h)}</span><span className="text-[10px] text-petrol-400">{pct}%</span></div> : <span className="text-petrol-200 text-xs">—</span>}
+                                      </td>
+                                    )
+                                  })}
+                                  <td className="px-4 py-3 text-center font-black text-petrol-900 tabular-nums">{fmtH(yearTot)}</td>
+                                  <td className="px-4 py-3 text-center tabular-nums">
+                                    {stima ? <span className="text-petrol-400 font-semibold">~{fmtH(stima)}</span> : <span className="text-petrol-200 text-xs">—</span>}
+                                  </td>
+                                </tr>
                               )
                             })}
-                            <td className="px-4 py-3 text-center font-black text-petrol-900 tabular-nums">{fmtH(yearTot)}</td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t-2 border-petrol-200 bg-petrol-50">
-                        <td className="px-5 py-4 font-bold text-petrol-700 text-sm" colSpan={servDept === 'TUTTI' ? 2 : 1}>Totale</td>
-                        {fasce.map(f => {
-                          const tot = servEmps.reduce((s, emp) => s + (annualByEmpFascia[emp.id]?.[f.id] || 0), 0)
-                          return <td key={f.id} className="px-4 py-4 text-center font-bold text-petrol-700 tabular-nums">{fmtH(tot)}</td>
-                        })}
-                        <td className="px-4 py-4 text-center font-black text-petrol-900 tabular-nums">
-                          {fmtH(servEmps.reduce((s, emp) => s + fasce.reduce((ss, f) => ss + (annualByEmpFascia[emp.id]?.[f.id] || 0), 0), 0))}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
+                          </tbody>
+                          <tfoot>
+                            <tr className="border-t-2 border-petrol-200 bg-petrol-50">
+                              <td className="px-5 py-4 font-bold text-petrol-700 text-sm" colSpan={1 + deptCols}>Totale</td>
+                              {fasce.map(f => {
+                                const tot = servEmps.reduce((s, emp) => s + (annualByEmpFascia[emp.id]?.[f.id] || 0), 0)
+                                return <td key={f.id} className="px-4 py-4 text-center font-bold text-petrol-700 tabular-nums">{fmtH(tot)}</td>
+                              })}
+                              <td className="px-4 py-4 text-center font-black text-petrol-900 tabular-nums">
+                                {fmtH(servEmps.reduce((s, emp) => s + fasce.reduce((ss, f) => ss + (annualByEmpFascia[emp.id]?.[f.id] || 0), 0), 0))}
+                              </td>
+                              <td />
+                            </tr>
+                          </tfoot>
+                        </table>
+                      ) : (
+                        /* ── Vista per mese ── */
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b-2 border-petrol-100 bg-petrol-50">
+                              <th className="text-left px-5 py-3 text-xs font-bold text-petrol-600 uppercase tracking-wider sticky left-0 bg-petrol-50 z-10">Dipendente</th>
+                              {servDept === 'TUTTI' && <th className="text-center px-3 py-3 text-xs font-bold text-petrol-600 uppercase tracking-wider">Rep.</th>}
+                              {MONTHS_IT.map((m, i) => (
+                                <th key={m} className={`text-center px-2 py-3 text-xs font-bold uppercase tracking-wider ${i === today.getMonth() && servYear === today.getFullYear() ? 'text-petrol-800 bg-petrol-100' : 'text-petrol-500'}`}>{m}</th>
+                              ))}
+                              <th className="text-center px-4 py-3 text-xs font-bold text-petrol-600 uppercase tracking-wider">Totale reale</th>
+                              <th className="text-center px-4 py-3 text-xs font-bold text-petrol-400 uppercase tracking-wider">Stima anno</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {servEmps.map(emp => {
+                              const yearTot = Array.from({length:12}, (_,m) => fasce.reduce((s,f) => s + (servData[emp.id]?.[m]?.[f.id]||0), 0)).reduce((a,b)=>a+b,0)
+                              const stima   = monthsElapsed < 12 && yearTot > 0 ? (yearTot / monthsElapsed) * 12 : null
+                              return (
+                                <tr key={emp.id} className="border-t border-petrol-100 hover:bg-petrol-50/40 transition">
+                                  <td className="px-5 py-3 font-semibold text-petrol-800 sticky left-0 bg-white z-10">{emp.nickname || emp.name}</td>
+                                  {servDept === 'TUTTI' && (
+                                    <td className="px-3 py-3 text-center">
+                                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${emp.department === 'SALA' ? 'bg-petrol-100 text-petrol-700' : 'bg-amber-100 text-amber-700'}`}>{emp.department}</span>
+                                    </td>
+                                  )}
+                                  {Array.from({length:12}, (_, m) => {
+                                    const tot = fasce.reduce((s,f) => s + (servData[emp.id]?.[m]?.[f.id]||0), 0)
+                                    const isCurrent = m === today.getMonth() && servYear === today.getFullYear()
+                                    // mini barra fasce
+                                    return (
+                                      <td key={m} className={`px-2 py-2 text-center tabular-nums ${isCurrent ? 'bg-petrol-50' : ''}`}>
+                                        {tot > 0.1 ? (
+                                          <div className="flex flex-col items-center gap-0.5">
+                                            <span className="font-semibold text-petrol-900 text-xs">{fmtH(tot)}</span>
+                                            {/* mini stacked bar */}
+                                            <div className="flex w-10 h-1.5 rounded-full overflow-hidden">
+                                              {fasce.map(f => {
+                                                const h = servData[emp.id]?.[m]?.[f.id] || 0
+                                                if (!h) return null
+                                                return <div key={f.id} style={{ width: `${(h/tot)*100}%`, background: f.color }} />
+                                              })}
+                                            </div>
+                                          </div>
+                                        ) : <span className="text-petrol-200 text-xs">—</span>}
+                                      </td>
+                                    )
+                                  })}
+                                  <td className="px-4 py-3 text-center font-black text-petrol-900 tabular-nums">{fmtH(yearTot)}</td>
+                                  <td className="px-4 py-3 text-center tabular-nums">
+                                    {stima ? <span className="text-petrol-400 font-semibold">~{fmtH(stima)}</span> : <span className="text-petrol-200 text-xs">—</span>}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                          <tfoot>
+                            <tr className="border-t-2 border-petrol-200 bg-petrol-50">
+                              <td className="px-5 py-4 font-bold text-petrol-700 text-sm sticky left-0 bg-petrol-50 z-10" colSpan={1 + deptCols}>Totale</td>
+                              {Array.from({length:12}, (_, m) => {
+                                const tot = servEmps.reduce((s, emp) => s + fasce.reduce((ss,f) => ss+(servData[emp.id]?.[m]?.[f.id]||0), 0), 0)
+                                return <td key={m} className="px-2 py-4 text-center font-bold text-petrol-700 tabular-nums text-xs">{tot > 0.1 ? fmtH(tot) : <span className="text-petrol-200">—</span>}</td>
+                              })}
+                              <td className="px-4 py-4 text-center font-black text-petrol-900 tabular-nums text-xs">
+                                {fmtH(servEmps.reduce((s, emp) => s + fasce.reduce((ss,f) => ss+(annualByEmpFascia[emp.id]?.[f.id]||0), 0), 0))}
+                              </td>
+                              <td />
+                            </tr>
+                          </tfoot>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
 
             </div>
           )}
