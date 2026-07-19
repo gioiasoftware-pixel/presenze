@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../../lib/supabase'
 import { getMonday, addDays, toKey, formatWeekRange } from './turni/turniData'
+import { fetchYearMerged } from '../../lib/punchUtils'
 
 const DEPTS      = ['SALA', 'CUCINA']
 const MONTHS_IT  = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic']
@@ -69,21 +70,6 @@ function monthLabel(year, month) {
 // ── Utility servizi ───────────────────────────────────────────────────────────
 
 function toMin(t) { const [h, m] = t.split(':').map(Number); return h * 60 + m }
-
-function punchTime(iso) {
-  const d = new Date(iso)
-  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
-}
-
-// Identica a EmployeeRiepilogoPage — arrotonda al mezzo-quarto d'ora più vicino
-function roundToHalf(timeStr) {
-  if (!timeStr) return null
-  const [h, m] = timeStr.split(':').map(Number)
-  const rounded = Math.round((h * 60 + m) / 30) * 30
-  const rh = Math.floor(rounded / 60) % 24
-  const rm = rounded % 60
-  return `${String(rh).padStart(2,'0')}:${String(rm).padStart(2,'0')}`
-}
 
 // Ritorna le ore di sovrapposizione tra la coppia [entryTime, exitTime] e la fascia [fS, fE]
 function calcOverlapHours(entryTime, exitTime, fS, fE) {
@@ -210,77 +196,23 @@ export default function StatistichePage() {
 
     if (!list.length) { setServData({}); setServLoading(false); return }
 
-    const firstDay = `${servYear}-01-01`
-    const lastDay  = `${servYear}-12-31`
-    const nextYear = `${servYear + 1}-01-01`
-    const empIds   = list.map(e => e.id)
+    const empIds = list.map(e => e.id)
 
-    const [{ data: punchData }, { data: turniData }] = await Promise.all([
-      supabase.from('punches').select('employee_id, action, punched_at')
-        .in('employee_id', empIds)
-        .gte('punched_at', `${firstDay}T00:00:00`)
-        .lte('punched_at', `${nextYear}T05:59:59`)
-        .order('punched_at'),
-      supabase.from('turni').select('employee_id, date, shift_data')
-        .in('employee_id', empIds)
-        .gte('date', firstDay).lte('date', lastDay),
-    ])
-
-    // Turni per employee+date
-    const turniMap = {}
-    turniData?.forEach(r => {
-      if (!turniMap[r.employee_id]) turniMap[r.employee_id] = {}
-      turniMap[r.employee_id][r.date] = r.shift_data
-    })
+    // Usa direttamente la stessa computazione del riepilogo — mergeDay per ogni dipendente/giorno
+    const mergedByEmpDate = await fetchYearMerged(empIds, servYear)
 
     const result = {}
     for (const emp of list) {
       result[emp.id] = {}
       for (let m = 0; m < 12; m++) result[emp.id][m] = {}
 
-      const empPunches = (punchData || []).filter(p => p.employee_id === emp.id)
-      const actualPairs = buildPairs(empPunches)
-
-      // Raggruppa coppie effettive per data entrata (solo date nell'anno)
-      const pairsByDate = {}
-      for (const pair of actualPairs) {
-        const ref = pair.entry || pair.exit
-        if (!ref) continue
-        const dk = new Date(ref.punched_at).toLocaleDateString('sv')
-        if (dk < firstDay || dk > lastDay) continue
-        if (!pairsByDate[dk]) pairsByDate[dk] = []
-        pairsByDate[dk].push(pair)
-      }
-
-      // Stessa logica di mergeDay: per ogni giorno, itera per indice accoppiando
-      // effettivo (se presente) altrimenti pianificato — gestisce turni parziali
-      const empTurni = turniMap[emp.id] || {}
-      const allDates = new Set([...Object.keys(pairsByDate), ...Object.keys(empTurni)])
-
-      for (const dk of allDates) {
-        if (dk < firstDay || dk > lastDay) continue
+      for (const [dk, merged] of Object.entries(mergedByEmpDate[emp.id] || {})) {
         const m = new Date(dk).getMonth()
-        const actualDay  = pairsByDate[dk] || []
-        const shift      = empTurni[dk]
-        const plannedDay = (shift && typeof shift !== 'string') ? (shift.pairs || []) : []
-        const numPairs   = Math.max(actualDay.length, plannedDay.length)
-        if (!numPairs) continue
-
-        for (let i = 0; i < numPairs; i++) {
-          const actual = actualDay[i] || { entry: null, exit: null }
-          const plan   = plannedDay[i] || null
-
-          // Stessa logica di mergeDay in EmployeeRiepilogoPage:
-          // arrotonda la timbratura al mezzo quarto, fallback all'orario pianificato
-          const rawIn  = actual.entry ? punchTime(actual.entry.punched_at) : null
-          const rawOut = actual.exit  ? punchTime(actual.exit.punched_at)  : null
-          const inT    = (rawIn  ? roundToHalf(rawIn)  : null) ?? plan?.in  ?? null
-          const outT   = (rawOut ? roundToHalf(rawOut) : null) ?? plan?.out ?? null
-
-          if (!inT || !outT) continue
-
+        for (const pair of merged.pairs) {
+          const { effectiveIn, effectiveOut } = pair
+          if (!effectiveIn || !effectiveOut) continue
           for (const f of fasce) {
-            const h = calcOverlapHours(inT, outT, f.start, f.end)
+            const h = calcOverlapHours(effectiveIn, effectiveOut, f.start, f.end)
             if (h > 0.01) result[emp.id][m][f.id] = (result[emp.id][m][f.id] || 0) + h
           }
         }
