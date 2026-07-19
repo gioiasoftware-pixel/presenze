@@ -115,6 +115,10 @@ export default function AdminLayout({ children }) {
               </div>
             </div>
           )}
+          <a href="https://heysupport.netlify.app/admin/clienti" target="_blank" rel="noopener noreferrer"
+            className="text-petrol-400 hover:text-white text-sm font-medium transition mb-2">
+            HEY Supports ↗
+          </a>
           <button onClick={logout}
             className="text-petrol-400 hover:text-white text-sm font-medium transition text-left">
             Esci →
