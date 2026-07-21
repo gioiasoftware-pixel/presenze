@@ -23,6 +23,7 @@ export default function TurniPage() {
   const [exporting, setExporting]         = useState(false)
   const [copying, setCopying]             = useState(false)
   const [autofilling, setAutofilling]     = useState(false)
+  const [clearing, setClearing]           = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
   const [showMenu, setShowMenu]           = useState(false)
 
@@ -184,6 +185,20 @@ export default function TurniPage() {
       })
     } finally {
       setCopying(false)
+    }
+  }
+
+  async function handleClearWeek() {
+    if (employees.length === 0) return
+    if (!window.confirm(`Eliminare tutti i turni di ${dept} per la settimana ${formatWeekRange(weekStart)}?`)) return
+    setClearing(true)
+    try {
+      await supabase.from('turni').delete()
+        .in('employee_id', employees.map(e => e.id))
+        .in('date', days.map(d => d.dateKey))
+      setShifts({})
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -356,6 +371,14 @@ export default function TurniPage() {
                       >
                         <span>↓</span> Scarica PNG
                       </button>
+                      <div className="border-t border-white/10" />
+                      <button
+                        onClick={() => { setShowMenu(false); handleClearWeek() }}
+                        disabled={clearing || employees.length === 0}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-red-400 hover:bg-red-900/20 transition disabled:opacity-40 text-left"
+                      >
+                        <span>✕</span> Svuota settimana
+                      </button>
                     </div>
                   </>
                 )}
@@ -375,6 +398,10 @@ export default function TurniPage() {
               <button onClick={handleExport} disabled={exporting}
                 className="hidden md:flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50">
                 {exporting ? <><span className="animate-spin">⟳</span>Esporto…</> : <><span>↓</span>Scarica PNG</>}
+              </button>
+              <button onClick={handleClearWeek} disabled={clearing || employees.length === 0}
+                className="hidden md:flex items-center gap-2 bg-red-900/40 hover:bg-red-900/60 border border-red-500/30 text-red-400 rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40">
+                {clearing ? <><span className="animate-spin">⟳</span>Pulizia…</> : <><span>✕</span>Svuota</>}
               </button>
             </div>
           </div>
