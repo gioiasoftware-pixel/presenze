@@ -420,7 +420,7 @@ function TabDocumenti({ id }) {
     setOpeningId(doc.id)
     try {
       const { data, error } = await supabase.storage
-        .from('documenti-dipendenti')
+        .from('documenti dipendenti')
         .createSignedUrl(doc.storage_path, 3600)
       if (error) throw error
       window.open(data.signedUrl, '_blank')

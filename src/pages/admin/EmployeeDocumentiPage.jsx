@@ -67,7 +67,7 @@ export default function EmployeeDocumentiPage() {
     try {
       const path = `${id}/contratto/contratto.pdf`
       const { error: err } = await supabase.storage
-        .from('documenti-dipendenti')
+        .from('documenti dipendenti')
         .upload(path, file, { upsert: true, contentType: 'application/pdf' })
       if (err) throw err
       await supabase.from('employee_documents').delete().eq('employee_id', id).eq('type', 'contratto')
@@ -90,7 +90,7 @@ export default function EmployeeDocumentiPage() {
     try {
       const path = `${id}/buste/${bustaAnno}-${String(bustaMese).padStart(2,'0')}.pdf`
       const { error: err } = await supabase.storage
-        .from('documenti-dipendenti')
+        .from('documenti dipendenti')
         .upload(path, file, { upsert: true, contentType: 'application/pdf' })
       if (err) throw err
       const existing = docs.find(d => d.type === 'busta_paga' && d.month === bustaMese && d.year === bustaAnno)
@@ -113,7 +113,7 @@ export default function EmployeeDocumentiPage() {
     setOpeningId(doc.id)
     try {
       const { data, error } = await supabase.storage
-        .from('documenti-dipendenti')
+        .from('documenti dipendenti')
         .createSignedUrl(doc.storage_path, 3600)
       if (error) throw error
       window.open(data.signedUrl, '_blank')
@@ -126,7 +126,7 @@ export default function EmployeeDocumentiPage() {
 
   async function deleteDoc(doc) {
     if (!confirm(`Eliminare "${doc.label}"?`)) return
-    await supabase.storage.from('documenti-dipendenti').remove([doc.storage_path])
+    await supabase.storage.from('documenti dipendenti').remove([doc.storage_path])
     await supabase.from('employee_documents').delete().eq('id', doc.id)
     await loadDocs()
   }
