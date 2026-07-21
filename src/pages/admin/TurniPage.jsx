@@ -22,6 +22,7 @@ export default function TurniPage() {
   const [templates, setTemplates] = useState([])
   const [exporting, setExporting]         = useState(false)
   const [copying, setCopying]             = useState(false)
+  const [autofilling, setAutofilling]     = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
   const [showMenu, setShowMenu]           = useState(false)
 
@@ -31,6 +32,14 @@ export default function TurniPage() {
       return { date, dateKey: toKey(date), label: formatDay(date) }
     })
   ), [weekStart])
+
+  const emptyCount = useMemo(() => {
+    let n = 0
+    for (const emp of employees)
+      for (const day of days)
+        if (shifts[emp.id]?.[day.dateKey] === undefined) n++
+    return n
+  }, [employees, days, shifts])
 
   // Carica dipendenti + turni quando cambia reparto o settimana
   const load = useCallback(async () => {
@@ -178,6 +187,90 @@ export default function TurniPage() {
     }
   }
 
+  function serializeShift(sd) {
+    if (typeof sd === 'string') return sd
+    if (!sd?.pairs?.length) return null
+    return sd.pairs.map(p => `${p.in}-${p.out}`).join('|')
+  }
+
+  async function handleAutofill() {
+    if (employees.length === 0) return
+    setAutofilling(true)
+    try {
+      // Slot vuoti della settimana corrente
+      const emptySlots = []
+      for (const emp of employees)
+        for (const day of days)
+          if (shifts[emp.id]?.[day.dateKey] === undefined)
+            emptySlots.push({ empId: emp.id, dateKey: day.dateKey, dow: day.date.getDay() })
+      if (emptySlots.length === 0) return
+
+      // Fetch ultime 12 settimane (esclusa settimana corrente)
+      const histStart = toKey(addDays(weekStart, -84))
+      const histEnd   = toKey(addDays(weekStart, -1))
+      const { data: histRows } = await supabase
+        .from('turni').select('employee_id, date, shift_data')
+        .in('employee_id', employees.map(e => e.id))
+        .gte('date', histStart).lte('date', histEnd)
+
+      // Voti pesati: { empId: { dow: { shiftKey: { weight, recency, shiftData } } } }
+      const votes   = {}
+      const weekMs  = weekStart.getTime()
+
+      for (const row of histRows || []) {
+        const sd = row.shift_data
+        if (sd === 'FERIE' || sd === 'MALATTIA') continue
+
+        const rowMs    = new Date(row.date + 'T00:00:00').getTime()
+        const daysAgo  = Math.round((weekMs - rowMs) / 86400000)
+        const weeksAgo = Math.ceil(daysAgo / 7)
+        if (weeksAgo < 1 || weeksAgo > 12) continue
+
+        const weight = 13 - weeksAgo // settimana 1 = peso 12, settimana 12 = peso 1
+        const dow    = new Date(row.date + 'T00:00:00').getDay()
+        const key    = serializeShift(sd)
+        if (!key) continue
+
+        const { employee_id: empId } = row
+        if (!votes[empId])        votes[empId] = {}
+        if (!votes[empId][dow])   votes[empId][dow] = {}
+        if (!votes[empId][dow][key]) votes[empId][dow][key] = { weight: 0, recency: 0, shiftData: sd }
+        votes[empId][dow][key].weight  += weight
+        votes[empId][dow][key].recency  = Math.max(votes[empId][dow][key].recency, weight)
+      }
+
+      // Per ogni slot vuoto: vince il turno col peso più alto (parità → più recente)
+      const toUpsert  = []
+      const newShifts = {}
+
+      for (const { empId, dateKey, dow } of emptySlots) {
+        const opts = votes[empId]?.[dow]
+        if (!opts) continue
+        let best = null
+        for (const v of Object.values(opts)) {
+          if (!best || v.weight > best.weight || (v.weight === best.weight && v.recency > best.recency))
+            best = v
+        }
+        if (!best) continue
+        toUpsert.push({ employee_id: empId, date: dateKey, shift_data: best.shiftData })
+        if (!newShifts[empId]) newShifts[empId] = {}
+        newShifts[empId][dateKey] = best.shiftData
+      }
+
+      if (toUpsert.length > 0) {
+        await supabase.from('turni').upsert(toUpsert, { onConflict: 'employee_id,date' })
+        setShifts(prev => {
+          const next = { ...prev }
+          for (const [empId, ds] of Object.entries(newShifts))
+            next[empId] = { ...(next[empId] || {}), ...ds }
+          return next
+        })
+      }
+    } finally {
+      setAutofilling(false)
+    }
+  }
+
   async function handleExport() {
     setExporting(true)
     try {
@@ -236,6 +329,18 @@ export default function TurniPage() {
                     {/* Overlay per chiudere */}
                     <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
                     <div className="absolute right-0 top-11 z-50 bg-petrol-950 border border-white/15 rounded-2xl shadow-2xl overflow-hidden min-w-[180px]">
+                      {emptyCount > 0 && (
+                        <>
+                          <button
+                            onClick={() => { setShowMenu(false); handleAutofill() }}
+                            disabled={autofilling || employees.length === 0}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-petrol-300 hover:bg-white/10 transition disabled:opacity-40 text-left"
+                          >
+                            <span>✦</span> Autofill settimana
+                          </button>
+                          <div className="border-t border-white/10" />
+                        </>
+                      )}
                       <button
                         onClick={() => { setShowMenu(false); handleCopyPrevWeek() }}
                         disabled={copying || employees.length === 0}
@@ -257,6 +362,12 @@ export default function TurniPage() {
               </div>
 
               {/* Bottoni normali — solo desktop */}
+              {emptyCount > 0 && (
+                <button onClick={handleAutofill} disabled={autofilling || employees.length === 0}
+                  className="hidden md:flex items-center gap-2 bg-petrol-600/80 hover:bg-petrol-500 border border-petrol-500/50 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40">
+                  {autofilling ? <><span className="animate-spin">⟳</span>Calcolo…</> : <><span>✦</span>Autofill</>}
+                </button>
+              )}
               <button onClick={handleCopyPrevWeek} disabled={copying || employees.length === 0}
                 className="hidden md:flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40">
                 {copying ? <><span className="animate-spin">⟳</span>Copio…</> : <><span>⎘</span>Copia sett. prec.</>}
