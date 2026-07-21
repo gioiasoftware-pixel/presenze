@@ -63,6 +63,17 @@ const NAV = [
       </svg>
     ),
   },
+  {
+    to: '/admin/documenti', label: 'Documenti', section: 'documenti',
+    icon: (
+      <svg viewBox="0 0 16 16" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 2H4a1.2 1.2 0 0 0-1.2 1.2v9.6A1.2 1.2 0 0 0 4 14h8a1.2 1.2 0 0 0 1.2-1.2V6L9 2z"/>
+        <polyline points="9,2 9,6 13.2,6"/>
+        <line x1="5" y1="9" x2="11" y2="9"/>
+        <line x1="5" y1="11.5" x2="8.5" y2="11.5"/>
+      </svg>
+    ),
+  },
 ]
 
 const ROLE_LABEL = {

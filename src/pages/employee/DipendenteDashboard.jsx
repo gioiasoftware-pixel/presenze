@@ -401,6 +401,103 @@ function TabPresenze({ id, upcoming }) {
   )
 }
 
+// ── Tab Documenti ─────────────────────────────────────────────────────────────
+
+function TabDocumenti({ id }) {
+  const [docs, setDocs]         = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [openingId, setOpeningId] = useState(null)
+
+  useEffect(() => {
+    supabase.from('employee_documents')
+      .select('*').eq('employee_id', id)
+      .order('year',  { ascending: false })
+      .order('month', { ascending: false })
+      .then(({ data }) => { setDocs(data || []); setLoading(false) })
+  }, [id])
+
+  async function openDoc(doc) {
+    setOpeningId(doc.id)
+    try {
+      const { data, error } = await supabase.storage
+        .from('documenti-dipendenti')
+        .createSignedUrl(doc.storage_path, 3600)
+      if (error) throw error
+      window.open(data.signedUrl, '_blank')
+    } catch (err) {
+      alert('Errore apertura: ' + err.message)
+    } finally {
+      setOpeningId(null)
+    }
+  }
+
+  const contratto = docs.find(d => d.type === 'contratto')
+  const buste     = docs.filter(d => d.type === 'busta_paga')
+
+  if (loading) return <p className="text-petrol-400 text-sm text-center py-8">Caricamento…</p>
+
+  return (
+    <div className="flex flex-col gap-4">
+
+      {/* Contratto */}
+      <div className="bg-white/8 border border-white/10 rounded-2xl p-5">
+        <p className="text-petrol-400 text-xs font-bold uppercase tracking-widest mb-3">Contratto</p>
+        {contratto ? (
+          <button onClick={() => openDoc(contratto)} disabled={openingId === contratto.id}
+            className="w-full flex items-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-3.5 transition disabled:opacity-40 text-left">
+            <svg viewBox="0 0 24 24" className="w-9 h-9 text-petrol-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14,2 14,8 20,8"/>
+              <line x1="9" y1="15" x2="15" y2="15"/>
+              <line x1="9" y1="11" x2="15" y2="11"/>
+            </svg>
+            <div className="flex-1">
+              <p className="text-white font-semibold text-sm">Contratto di lavoro</p>
+              <p className="text-petrol-400 text-xs mt-0.5">
+                {openingId === contratto.id ? 'Apertura in corso…' : 'Tocca per aprire il PDF'}
+              </p>
+            </div>
+            <svg viewBox="0 0 16 16" className="w-4 h-4 text-petrol-500 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M6 3H3v10h10v-3M9 3h4v4M13 3l-6 6"/>
+            </svg>
+          </button>
+        ) : (
+          <p className="text-petrol-600 text-sm text-center py-3">Nessun contratto disponibile</p>
+        )}
+      </div>
+
+      {/* Buste paga */}
+      <div className="bg-white/8 border border-white/10 rounded-2xl p-5">
+        <p className="text-petrol-400 text-xs font-bold uppercase tracking-widest mb-3">Buste paga</p>
+        {buste.length === 0 ? (
+          <p className="text-petrol-600 text-sm text-center py-3">Nessuna busta paga disponibile</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {buste.map(doc => (
+              <button key={doc.id} onClick={() => openDoc(doc)} disabled={openingId === doc.id}
+                className="flex items-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-3 transition disabled:opacity-40 text-left w-full">
+                <svg viewBox="0 0 24 24" className="w-7 h-7 text-petrol-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14,2 14,8 20,8"/>
+                </svg>
+                <div className="flex-1">
+                  <p className="text-white font-semibold text-sm">{doc.label}</p>
+                  <p className="text-petrol-500 text-xs mt-0.5">
+                    {openingId === doc.id ? 'Apertura in corso…' : 'Tocca per aprire il PDF'}
+                  </p>
+                </div>
+                <svg viewBox="0 0 16 16" className="w-4 h-4 text-petrol-500 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M6 3H3v10h10v-3M9 3h4v4M13 3l-6 6"/>
+                </svg>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Tab Richieste ─────────────────────────────────────────────────────────────
 
 function TabRichieste({ id }) {
@@ -646,7 +743,7 @@ export default function DipendenteDashboard() {
 
       {/* Tab bar */}
       <div className="bg-petrol-950 border-t border-petrol-800 px-5 flex gap-1">
-        {[['presenze', 'Presenze', 0], ['richieste', 'Richieste', reqBadge]].map(([key, label, badge]) => (
+        {[['presenze', 'Presenze', 0], ['richieste', 'Richieste', reqBadge], ['documenti', 'Documenti', 0]].map(([key, label, badge]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`relative px-5 py-3 text-sm font-semibold border-b-2 transition ${
               tab === key
@@ -662,9 +759,9 @@ export default function DipendenteDashboard() {
       </div>
 
       <div className="max-w-lg mx-auto px-4 mt-5">
-        {tab === 'presenze'
-          ? <TabPresenze id={id} upcoming={upcoming} />
-          : <TabRichieste id={id} />}
+        {tab === 'presenze'   && <TabPresenze id={id} upcoming={upcoming} />}
+        {tab === 'richieste' && <TabRichieste id={id} />}
+        {tab === 'documenti' && <TabDocumenti id={id} />}
       </div>
     </div>
   )
